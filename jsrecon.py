@@ -4,7 +4,7 @@
 #   2026 Edition  ·  Languages: az | en | ru
 #
 #   Usage:
-#     ./scan.sh [OPTIONS]
+#     ./jsrecon.py [OPTIONS]
 #     -i <file>    Input JSON file          [default: domains.json]
 #     -o <dir>     Output directory         [auto-created; default: scan_YYYYMMDD_HHMMSS]
 #     -l <lang>    Language: az | en | ru   [default: az]
