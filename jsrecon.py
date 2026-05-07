@@ -1,1192 +1,1327 @@
-#!/usr/bin/env bash
-# ═══════════════════════════════════════════════════════════════════════════
-#   Am I reachable?  ·  Domain External Reachability Scanner  ·  v3.0
-#   2026 Edition  ·  Languages: az | en | ru
-#
-#   Usage:
-#     ./jsrecon.py [OPTIONS]
-#     -i <file>    Input JSON file          [default: domains.json]
-#     -o <dir>     Output directory         [auto-created; default: scan_YYYYMMDD_HHMMSS]
-#     -l <lang>    Language: az | en | ru   [default: az]
-#     -t <sec>     HTTP timeout per host    [default: 10]
-#     -w <n>       Parallel worker threads  [default: 12]
-#     -h           Show help and exit
-# ═══════════════════════════════════════════════════════════════════════════
+#!/usr/bin/env python3
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║                    jsrecon.py  —  JS Recon & Secret Hunter               ║
+# ║                              v4  •  Production Grade                     ║
+# ╠══════════════════════════════════════════════════════════════════════════╣
+# ║  Pipeline:                                                               ║
+# ║    subs.txt / --domain → httpx (live check) → URL harvest (gau +         ║
+# ║    katana + waybackurls + hakrawler) → active <script> parsing →         ║
+# ║    JS brute-force → JS filter → curl/wget download → secret scanning     ║
+# ╠══════════════════════════════════════════════════════════════════════════╣
+# ║  Usage:                                                                  ║
+# ║    python3 jsrecon.py --domain example.com -o output/                    ║
+# ║    python3 jsrecon.py --domain example.com -o output/ --insecure         ║
+# ║    python3 jsrecon.py -s subs.txt -o output/ [options]                   ║
+# ║    python3 jsrecon.py -s subs.txt -o output/ --insecure --threads 50     ║
+# ║    python3 jsrecon.py -s subs.txt -o output/ --scan-all-js               ║
+# ║    python3 jsrecon.py -s subs.txt -o output/ --skip-live-check           ║
+# ║    python3 jsrecon.py -s subs.txt -o output/ --skip-url-collection       ║
+# ║    python3 jsrecon.py -s subs.txt -o output/ --skip-download             ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
 
-BOLD='\033[1m'; DIM='\033[2m'
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-WHITE='\033[1;37m'; GRAY='\033[0;37m'; CYAN='\033[0;36m'; NC='\033[0m'
+from __future__ import annotations
 
-INPUT_JSON=""; OUTPUT_DIR=""; LANG_CODE="az"; TIMEOUT=10; WORKERS=12
-
-usage() {
-  echo -e "\n  ${WHITE}${BOLD}Am I reachable?${NC}  ·  Domain Scanner v3.0\n"
-  echo -e "  ${GRAY}Usage:${NC} $0 [OPTIONS]\n"
-  echo -e "  ${CYAN}-i <file>${NC}   Input JSON file          [default: domains.json]"
-  echo -e "  ${CYAN}-o <dir>${NC}    Output directory         [default: scan_YYYYMMDD_HHMMSS]"
-  echo -e "  ${CYAN}-l <lang>${NC}   Language: az | en | ru   [default: az]"
-  echo -e "  ${CYAN}-t <sec>${NC}    HTTP timeout per host    [default: 10]"
-  echo -e "  ${CYAN}-w <n>${NC}      Parallel worker threads  [default: 12]"
-  echo -e "  ${CYAN}-h${NC}          Show this help\n"
-  exit 0
-}
-
-while getopts "i:o:l:t:w:h" opt; do
-  case $opt in
-    i) INPUT_JSON="$OPTARG" ;;
-    o) OUTPUT_DIR="$OPTARG" ;;
-    l) LANG_CODE="$OPTARG" ;;
-    t) TIMEOUT="$OPTARG"   ;;
-    w) WORKERS="$OPTARG"   ;;
-    h) usage ;;
-    *) usage ;;
-  esac
-done
-
-# ── Defaults ───────────────────────────────────────────────────────────────
-[ -z "$INPUT_JSON" ] && INPUT_JSON="domains.json"
-[ -z "$OUTPUT_DIR" ] && OUTPUT_DIR="scan_$(date +%Y%m%d_%H%M%S)"
-
-case "$LANG_CODE" in
-  az|en|ru) ;;
-  *) echo -e "${RED}[!] Invalid language: $LANG_CODE  →  Use: az, en, ru${NC}"; exit 1 ;;
-esac
-
-# ── Terminal strings ───────────────────────────────────────────────────────
-case "$LANG_CODE" in
-  en)
-    MSG_DEPS="[*] Checking dependencies...";        MSG_INSTALL="[!] Not found, installing:"
-    MSG_WW_OK="[✓] WhatWeb: active";                MSG_WW_NO="[~] WhatWeb: inactive (skipped)"
-    MSG_CR_OK="[✓] Screenshots: active";            MSG_CR_NO="[~] Screenshots: inactive (Chrome not found)"
-    MSG_NO_IN="[ERROR] Input file not found:";      MSG_INPUT="[*] Input"
-    MSG_OUTPUT="[*] Output dir";                    MSG_TIMEOUT="[*] Timeout"
-    MSG_WORKERS="[*] Threads";                      MSG_DONE="[✓] Scan complete!"
-    MSG_F1="  scan_results.html  — interactive report (open in browser)"
-    MSG_F2="  scan_results.json  — machine-readable data"
-    MSG_F3="  scan_results.csv   — spreadsheet-compatible"
-    MSG_F4="  README.txt         — scan summary"
-    MSG_F5="  screenshots/       — PNG files"
-    ;;
-  ru)
-    MSG_DEPS="[*] Проверка зависимостей...";        MSG_INSTALL="[!] Не найдено, установка:"
-    MSG_WW_OK="[✓] WhatWeb: активен";               MSG_WW_NO="[~] WhatWeb: неактивен (пропуск)"
-    MSG_CR_OK="[✓] Скриншоты: активны";             MSG_CR_NO="[~] Скриншоты: неактивны (Chrome не найден)"
-    MSG_NO_IN="[ОШИБКА] Входной файл не найден:";   MSG_INPUT="[*] Входной файл"
-    MSG_OUTPUT="[*] Папка вывода";                  MSG_TIMEOUT="[*] Тайм-аут"
-    MSG_WORKERS="[*] Потоков";                      MSG_DONE="[✓] Сканирование завершено!"
-    MSG_F1="  scan_results.html  — интерактивный отчёт (открыть в браузере)"
-    MSG_F2="  scan_results.json  — данные JSON"
-    MSG_F3="  scan_results.csv   — для таблиц"
-    MSG_F4="  README.txt         — краткий итог"
-    MSG_F5="  screenshots/       — PNG файлы"
-    ;;
-  *)  # az
-    MSG_DEPS="[*] Asılılıqlar yoxlanılır...";       MSG_INSTALL="[!] Tapılmadı, qurulur:"
-    MSG_WW_OK="[✓] WhatWeb: aktiv";                 MSG_WW_NO="[~] WhatWeb: deaktiv (atlanır)"
-    MSG_CR_OK="[✓] Ekran görüntüsü: aktiv";         MSG_CR_NO="[~] Ekran görüntüsü: deaktiv (Chrome tapılmadı)"
-    MSG_NO_IN="[XƏTA] Giriş faylı tapılmadı:";      MSG_INPUT="[*] Giriş"
-    MSG_OUTPUT="[*] Çıxış qovluğu";                 MSG_TIMEOUT="[*] Gözləmə"
-    MSG_WORKERS="[*] İş parçası";                   MSG_DONE="[✓] Skan tamamlandı!"
-    MSG_F1="  scan_results.html  — interaktiv hesabat (brauzerdə aç)"
-    MSG_F2="  scan_results.json  — maşın oxunaqlı nəticələr"
-    MSG_F3="  scan_results.csv   — Excel/Sheets üçün"
-    MSG_F4="  README.txt         — xülasə"
-    MSG_F5="  screenshots/       — PNG faylları"
-    ;;
-esac
-
-# ── Banner ─────────────────────────────────────────────────────────────────
-clear 2>/dev/null || true
-echo -e ""
-echo -e "${WHITE}${BOLD}  ┌─────────────────────────────────────────────────┐${NC}"
-echo -e "${WHITE}${BOLD}  │          Am I reachable?   ·   v3.0   2026      │${NC}"
-echo -e "${WHITE}${BOLD}  │        Domain External Reachability Scanner     │${NC}"
-echo -e "${WHITE}${BOLD}  └─────────────────────────────────────────────────┘${NC}"
-echo -e ""
-
-# ── Dependency checks ──────────────────────────────────────────────────────
-echo -e "${GRAY}${MSG_DEPS}${NC}"
-SKIP_WHATWEB=0; SKIP_SCREENSHOTS=0; CHROME_BIN=""
-
-if ! command -v whatweb &>/dev/null; then
-  echo -e "${YELLOW}${MSG_INSTALL} whatweb${NC}"
-  apt-get install -y whatweb -qq 2>/dev/null || \
-    gem install whatweb 2>/dev/null || true
-  command -v whatweb &>/dev/null || SKIP_WHATWEB=1
-fi
-[ $SKIP_WHATWEB -eq 0 ] && echo -e "${GREEN}${MSG_WW_OK}${NC}" \
-                         || echo -e "${YELLOW}${MSG_WW_NO}${NC}"
-
-for _bin in google-chrome-stable google-chrome chromium-browser chromium; do
-  command -v "$_bin" &>/dev/null && CHROME_BIN="$_bin" && break
-done
-
-if [ -z "$CHROME_BIN" ]; then
-  echo -e "${YELLOW}${MSG_INSTALL} chromium${NC}"
-  apt-get install -y chromium-browser -qq 2>/dev/null || \
-    apt-get install -y chromium -qq 2>/dev/null || true
-  for _bin in chromium-browser chromium google-chrome-stable google-chrome; do
-    command -v "$_bin" &>/dev/null && CHROME_BIN="$_bin" && break
-  done
-fi
-
-if [ -n "$CHROME_BIN" ]; then
-  echo -e "${GREEN}${MSG_CR_OK} (${CHROME_BIN})${NC}"
-else
-  echo -e "${YELLOW}${MSG_CR_NO}${NC}"
-  SKIP_SCREENSHOTS=1
-fi
-
-# ── Validate input ─────────────────────────────────────────────────────────
-if [ ! -f "$INPUT_JSON" ]; then
-  echo -e "\n${RED}${MSG_NO_IN} ${INPUT_JSON}${NC}\n"
-  exit 1
-fi
-
-# ── Create output tree ─────────────────────────────────────────────────────
-mkdir -p "${OUTPUT_DIR}/screenshots"
-
-echo -e ""
-echo -e "${GRAY}${MSG_INPUT}:${NC}    ${INPUT_JSON}"
-echo -e "${GRAY}${MSG_OUTPUT}:${NC}  ${OUTPUT_DIR}/"
-echo -e "${GRAY}${MSG_TIMEOUT}:${NC}  ${TIMEOUT}s per host"
-echo -e "${GRAY}${MSG_WORKERS}:${NC}  ${WORKERS}"
-echo -e ""
-
-PYTHON_SCRIPT="/tmp/amireachable_v3.py"
-
-# ── Embed Python scanner ───────────────────────────────────────────────────
-cat > "$PYTHON_SCRIPT" << 'PYEOF'
-import json, socket, sys, csv, time, os, subprocess, base64, re
-from datetime import datetime
+import argparse
+import hashlib
+import json
+import logging
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import urllib.request, urllib.error, ssl
+from datetime import datetime
+from html.parser import HTMLParser
+from pathlib import Path
+from typing import Optional
+from urllib.parse import urljoin, urlparse
 
-# ── Args from bash ─────────────────────────────────────────────────────────
-INPUT_JSON   = sys.argv[1]
-OUTPUT_DIR   = sys.argv[2]
-TIMEOUT      = int(sys.argv[3])
-SKIP_WHATWEB = sys.argv[4] == "1"
-SKIP_SHOTS   = sys.argv[5] == "1"
-CHROME_BIN   = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] else ""
-WORKERS      = int(sys.argv[7]) if len(sys.argv) > 7 else 12
-LANG         = sys.argv[8] if len(sys.argv) > 8 else "az"
-SHOTS_DIR    = os.path.join(OUTPUT_DIR, "screenshots")
-os.makedirs(SHOTS_DIR, exist_ok=True)
-START_TIME   = time.time()
 
-# ── Language dictionaries ──────────────────────────────────────────────────
-_STRINGS = {
-    "az": {
-        "title": "Am I reachable?",
-        "subtitle": "Domain Xarici Əlçatanlıq Skanı",
-        "scan_date": "Skan tarixi",
-        "hosts": "host",
-        "open": "açıq",
-        "closed": "bağlı",
-        "search_placeholder": "Host, IP, texnologiya, server axtar...",
-        "all": "Hamısı",
-        "f_open": "Açıq",
-        "f_closed": "Bağlı",
-        "f_nodns": "DNS yox",
-        "f_shots": "Ekran görüntüsü",
-        "col_status": "Status",
-        "col_host": "Host",
-        "col_domain": "Domain",
-        "col_ips": "IP Ünvanlar",
-        "col_http": "HTTP",
-        "col_tcp": "TCP",
-        "col_server": "Server",
-        "col_tech": "Texnologiyalar",
-        "col_sec": "Təhlükəsizlik",
-        "col_url": "URL",
-        "col_shot": "Ekran",
-        "col_time": "Müddət",
-        "zoom": "Böyüt",
-        "total_scanned": "Cəmi taranmış",
-        "ext_open": "Xarici əlçatan",
-        "cl_nodns": "Bağlı / DNS yox",
-        "shots_taken": "Ekran görüntüsü",
-        "scan_dur": "Skan müddəti",
-        "out_files": "Çıxış faylları",
-        "apex": "apex",
-        "sub": "sub",
-    },
-    "en": {
-        "title": "Am I reachable?",
-        "subtitle": "Domain External Reachability Scan",
-        "scan_date": "Scan date",
-        "hosts": "hosts",
-        "open": "open",
-        "closed": "closed",
-        "search_placeholder": "Search hosts, IPs, technologies, servers...",
-        "all": "All",
-        "f_open": "Open",
-        "f_closed": "Closed",
-        "f_nodns": "No DNS",
-        "f_shots": "Screenshots",
-        "col_status": "Status",
-        "col_host": "Host",
-        "col_domain": "Domain",
-        "col_ips": "IP Addresses",
-        "col_http": "HTTP",
-        "col_tcp": "TCP",
-        "col_server": "Server",
-        "col_tech": "Technologies",
-        "col_sec": "Security",
-        "col_url": "URL",
-        "col_shot": "Screenshot",
-        "col_time": "Time",
-        "zoom": "Zoom",
-        "total_scanned": "Total scanned",
-        "ext_open": "Externally open",
-        "cl_nodns": "Closed / No DNS",
-        "shots_taken": "Screenshots taken",
-        "scan_dur": "Scan duration",
-        "out_files": "Output files",
-        "apex": "apex",
-        "sub": "sub",
-    },
-    "ru": {
-        "title": "Am I reachable?",
-        "subtitle": "Сканирование внешней доступности доменов",
-        "scan_date": "Дата сканирования",
-        "hosts": "хостов",
-        "open": "открыт.",
-        "closed": "закрыт.",
-        "search_placeholder": "Поиск по хосту, IP, технологиям, серверу...",
-        "all": "Все",
-        "f_open": "Открытые",
-        "f_closed": "Закрытые",
-        "f_nodns": "Нет DNS",
-        "f_shots": "Скриншоты",
-        "col_status": "Статус",
-        "col_host": "Хост",
-        "col_domain": "Домен",
-        "col_ips": "IP Адреса",
-        "col_http": "HTTP",
-        "col_tcp": "TCP",
-        "col_server": "Сервер",
-        "col_tech": "Технологии",
-        "col_sec": "Безопасность",
-        "col_url": "URL",
-        "col_shot": "Скриншот",
-        "col_time": "Время",
-        "zoom": "Увеличить",
-        "total_scanned": "Всего просканировано",
-        "ext_open": "Внешне доступно",
-        "cl_nodns": "Закрыто / Нет DNS",
-        "shots_taken": "Скриншотов получено",
-        "scan_dur": "Длительность",
-        "out_files": "Выходные файлы",
-        "apex": "apex",
-        "sub": "sub",
-    }
+# ═══════════════════════════════════════════════════════════════════════════
+# ANSI COLOURS
+# ═══════════════════════════════════════════════════════════════════════════
+
+RESET  = "\033[0m";  BOLD   = "\033[1m"
+GREEN  = "\033[92m"; YELLOW = "\033[93m"
+RED    = "\033[91m"; CYAN   = "\033[96m"
+BLUE   = "\033[94m"; MAGENTA= "\033[95m"
+DIM    = "\033[2m";  WHITE  = "\033[97m"
+
+
+def clr(text: str, colour: str) -> str:
+    return f"{colour}{text}{RESET}"
+
+
+def ok(msg: str)   -> str: return f"  {GREEN}✔{RESET}  {msg}"
+def warn(msg: str) -> str: return f"  {YELLOW}⚠{RESET}  {msg}"
+def err(msg: str)  -> str: return f"  {RED}✘{RESET}  {msg}"
+def info(msg: str) -> str: return f"  {CYAN}→{RESET}  {msg}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# GLOBAL INSECURE FLAG
+# Set once in main() from --insecure arg.  All helpers read this.
+# ═══════════════════════════════════════════════════════════════════════════
+
+INSECURE: bool = False   # mutated by main()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TOOL REGISTRY
+# ═══════════════════════════════════════════════════════════════════════════
+
+REQUIRED_TOOLS: dict[str, str] = {
+    "httpx":      "go install github.com/projectdiscovery/httpx/cmd/httpx@latest",
+    "gau":        "go install github.com/lc/gau/v2/cmd/gau@latest",
+    "katana":     "go install github.com/projectdiscovery/katana/cmd/katana@latest",
+    "gf":         "go install github.com/tomnomnom/gf@latest",
+    "trufflehog": "https://github.com/trufflesecurity/trufflehog/releases",
 }
-L = _STRINGS.get(LANG, _STRINGS["az"])
 
-# ── Pre-define L lookups to avoid quote nesting in f-strings ───────────────
-L_search    = L["search_placeholder"]
-L_scan_date = L["scan_date"]
-L_hosts     = L["hosts"]
-L_open      = L["open"]
-L_closed    = L["closed"]
-L_all       = L["all"]
-L_f_open    = L["f_open"]
-L_f_closed  = L["f_closed"]
-L_f_nodns   = L["f_nodns"]
-L_f_shots   = L["f_shots"]
-L_col_stat  = L["col_status"]
-L_col_host  = L["col_host"]
-L_col_dom   = L["col_domain"]
-L_col_ips   = L["col_ips"]
-L_col_http  = L["col_http"]
-L_col_tcp   = L["col_tcp"]
-L_col_srv   = L["col_server"]
-L_col_tech  = L["col_tech"]
-L_col_sec   = L["col_sec"]
-L_col_url   = L["col_url"]
-L_col_shot  = L["col_shot"]
-L_col_time  = L["col_time"]
-L_zoom      = L["zoom"]
-L_apex      = L["apex"]
-L_sub       = L["sub"]
+OPTIONAL_TOOLS: dict[str, str] = {
+    "curl":        "pre-installed on most systems",
+    "wget":        "apt install wget  /  brew install wget",
+    "waybackurls": "go install github.com/tomnomnom/waybackurls@latest",
+    "hakrawler":   "go install github.com/hakluke/hakrawler@latest",
+    "anew":        "go install github.com/tomnomnom/anew@latest",
+}
 
-# ── Network helpers ────────────────────────────────────────────────────────
-def resolve_dns(host):
-    try:
-        ips = socket.getaddrinfo(host, None)
-        return list(set(r[4][0] for r in ips)), None
-    except socket.gaierror as e:
-        return [], str(e)
+GAU_PROVIDERS = "wayback,commoncrawl,otx,urlscan"
 
-def check_http(host, scheme="https"):
-    url = f"{scheme}://{host}"
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode   = ssl.CERT_NONE
-    try:
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0"
-        })
-        with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as r:
-            return r.status, r.url, dict(r.headers), None
-    except urllib.error.HTTPError as e:
-        return e.code, url, dict(e.headers) if hasattr(e, "headers") else {}, None
-    except urllib.error.URLError as e:
-        return None, url, {}, str(e.reason)
-    except Exception as e:
-        return None, url, {}, str(e)
 
-def check_tcp(host, port):
-    try:
-        s = socket.socket()
-        s.settimeout(min(TIMEOUT, 5))
-        ok = s.connect_ex((host, port)) == 0
-        s.close()
-        return ok
-    except Exception:
-        return False
+# ═══════════════════════════════════════════════════════════════════════════
+# FILTER PATTERNS
+# ═══════════════════════════════════════════════════════════════════════════
 
-def classify(http_code, tcp_443, tcp_80, ips):
-    if not ips:                                      return "NO_DNS",       "⛔"
-    if http_code in (200,201,301,302,303,307,308):   return "OPEN",         "✅"
-    if http_code in (401, 403):                      return "OPEN (Auth)",  "🔒"
-    if http_code and http_code >= 400:               return "OPEN (Error)", "⚠️"
-    if tcp_443 or tcp_80:                            return "TCP OPEN",     "🟡"
-    if ips:                                          return "DNS ONLY",     "🟠"
-    return "CLOSED", "❌"
-
-# ── WhatWeb fingerprinting ─────────────────────────────────────────────────
-def run_whatweb(host, scheme="https"):
-    if SKIP_WHATWEB:
-        return []
-    try:
-        url = f"{scheme}://{host}"
-        res = subprocess.run(
-            ["whatweb", "--no-errors", "-q", "--color=never", url],
-            capture_output=True, text=True, timeout=15
-        )
-        raw = res.stdout.strip()
-        if not raw:
-            return []
-        m = re.search(r'\[\d+\]\s+(.*)', raw)
-        if not m:
-            return []
-        techs = []
-        for part in m.group(1).split(","):
-            p = part.strip()
-            if p and not p.startswith("http") and len(p) < 80:
-                techs.append(p)
-        return techs[:15]
-    except Exception:
-        return []
-
-# ── Screenshot – waits for page to fully render ────────────────────────────
-def take_screenshot(host, scheme="https"):
-    if SKIP_SHOTS or not CHROME_BIN:
-        return None, None
-    url   = f"{scheme}://{host}"
-    fname = re.sub(r'[^a-zA-Z0-9._-]', '_', host).strip('_') + ".png"
-    fpath = os.path.join(SHOTS_DIR, fname)
-
-    if os.path.exists(fpath):
-        os.remove(fpath)
-
-    base_flags = [
-        "--no-sandbox",
-        "--disable-gpu",
-        "--disable-dev-shm-usage",
-        "--disable-extensions",
-        "--disable-background-networking",
-        "--ignore-certificate-errors",
-        "--ignore-ssl-errors=true",
-        "--disable-popup-blocking",
-        "--disable-infobars",
-        "--hide-scrollbars",
-        "--mute-audio",
-        "--run-all-compositor-stages-before-draw",  # ensures paint is complete
-        "--disable-features=TranslateUI,VizDisplayCompositor",
-        "--window-size=1280,800",
-        f"--screenshot={fpath}",
-        "--virtual-time-budget=12000",              # fast-forward JS timers 12s
-        url,
-    ]
-
-    # Try modern headless first (Chrome 112+), then legacy
-    for headless in ("--headless=new", "--headless"):
-        if os.path.exists(fpath):
-            os.remove(fpath)
-        try:
-            subprocess.run(
-                [CHROME_BIN, headless] + base_flags,
-                capture_output=True,
-                timeout=35
-            )
-        except subprocess.TimeoutExpired:
-            pass  # file might still exist
-        except Exception:
-            continue
-
-        # Wait for file to be fully written (poll up to 5 s)
-        deadline = time.time() + 5.0
-        while time.time() < deadline:
-            time.sleep(0.4)
-            if os.path.exists(fpath) and os.path.getsize(fpath) > 12_000:
-                break
-
-        if os.path.exists(fpath) and os.path.getsize(fpath) > 12_000:
-            break
-        if os.path.exists(fpath):
-            os.remove(fpath)
-
-    if not os.path.exists(fpath) or os.path.getsize(fpath) <= 12_000:
-        return None, None
-
-    try:
-        with open(fpath, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode()
-        return b64, fname          # keep PNG on disk AND return b64 for HTML
-    except Exception:
-        return None, None
-
-# ── Main per-host scan ─────────────────────────────────────────────────────
-def scan_host(entry):
-    domain = entry["domain"]
-    is_sub = entry.get("is_subdomain", False)
-    host   = entry["host"]
-    print(f"  → {host}", flush=True)
-
-    t0 = time.time()
-    ips, dns_err = resolve_dns(host)
-
-    # Try HTTPS first, fall back to HTTP
-    http_code, final_url, headers, http_err = check_http(host, "https")
-    used_scheme = "https"
-    if http_code is None:
-        hc2, fu2, hd2, he2 = check_http(host, "http")
-        if hc2:
-            http_code, final_url, headers, http_err = hc2, fu2, hd2, he2
-            used_scheme = "http"
-
-    tcp_443 = check_tcp(host, 443)
-    tcp_80  = check_tcp(host, 80)
-    elapsed = round(time.time() - t0, 2)
-
-    status_text, status_icon = classify(http_code, tcp_443, tcp_80, ips)
-
-    # Case-insensitive header lookup
-    hdrs         = {k.lower(): v for k, v in headers.items()}
-    server       = hdrs.get("server", "")
-    content_type = hdrs.get("content-type", "").split(";")[0].strip()
-    hsts         = "strict-transport-security" in hdrs
-    x_frame      = hdrs.get("x-frame-options", "")
-    x_powered    = hdrs.get("x-powered-by", "")
-    x_content    = hdrs.get("x-content-type-options", "")
-    csp          = "content-security-policy" in hdrs
-
-    # WhatWeb only on reachable hosts
-    whatweb_techs = []
-    if "OPEN" in status_text:
-        whatweb_techs = run_whatweb(host, used_scheme)
-
-    # Screenshot only when HTTP-reachable
-    screenshot_b64, shot_fname = None, None
-    if http_code and ips:
-        screenshot_b64, shot_fname = take_screenshot(host, used_scheme)
-
-    return {
-        "domain":          domain,
-        "host":            host,
-        "is_subdomain":    is_sub,
-        "dns_resolved":    len(ips) > 0,
-        "ips":             ips,
-        "dns_error":       dns_err,
-        "http_code":       http_code,
-        "http_error":      http_err,
-        "final_url":       final_url,
-        "scheme":          used_scheme,
-        "tcp_443":         tcp_443,
-        "tcp_80":          tcp_80,
-        "status":          status_text,
-        "status_icon":     status_icon,
-        "server":          server,
-        "content_type":    content_type,
-        "x_powered_by":    x_powered,
-        "hsts":            hsts,
-        "x_frame_options": x_frame,
-        "x_content_type":  x_content,
-        "csp":             csp,
-        "whatweb":         whatweb_techs,
-        "screenshot":      screenshot_b64,
-        "shot_file":       shot_fname,
-        "scan_time_s":     elapsed,
-        "scanned_at":      datetime.utcnow().isoformat() + "Z",
-    }
-
-# ── Load & flatten domains.json ────────────────────────────────────────────
-SKIP_PREFIXES = (
-    "_dmarc.", "_domainkey.", "_bbcab.", "_6a24.", "_sip.", "_sipfed.",
-    "_autodiscover.", "mail._domainkey.", "k2._domainkey.", "k3._domainkey.",
-    "s1._domainkey.", "s2._domainkey.", "em2443.", "selector1._domainkey.",
-    "default._domainkey.", "230619", "cf2024", "frzr", "wziut", "p9up",
+JS_EXCLUDE_RE = re.compile(
+    r"jquery|react(?:\.js|-dom|-router)?|angular(?:js)?|vue\.js|ember|backbone|"
+    r"bootstrap|lodash|underscore|moment\.js|axios|webpack|babel|polyfill|"
+    r"modernizr|d3\.js|three\.js|chart\.js|socket\.io|amplify|"
+    r"google-analytics|gtag|gtm|fbevents|recaptcha|stripe|twilio|"
+    r"intercom|sentry|datadog|newrelic|hotjar|gsap|swiper|slick|"
+    r"fontawesome|material-ui|tailwind|semantic\.js|foundation|"
+    r"\.min\.js|/vendor/|/bundle|/chunk|/node_modules/|/bower_components/|"
+    r"\.[a-f0-9]{8,}\.js|-[a-f0-9]{8,}\.js|"
+    r"runtime\.|/common\.|manifest\.|/framework\.|/lib/|/libs/",
+    re.IGNORECASE,
 )
 
-with open(INPUT_JSON) as fh:
-    raw_data = json.load(fh)
-
-entries = []
-for item in raw_data:
-    dom = item["domain"]
-    entries.append({"domain": dom, "host": dom, "is_subdomain": False})
-    for sub in item.get("subdomains", []):
-        if any(sub.startswith(p) for p in SKIP_PREFIXES):
-            continue
-        entries.append({"domain": dom, "host": sub, "is_subdomain": True})
-
-print(f"\n[*] Total hosts to scan : {len(entries)}  ({WORKERS} threads)\n", flush=True)
-
-# ── Parallel scan ──────────────────────────────────────────────────────────
-results = []
-with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-    futures = {ex.submit(scan_host, e): e for e in entries}
-    done = 0
-    for fut in as_completed(futures):
-        done += 1
-        r    = fut.result()
-        results.append(r)
-        icon  = r["status_icon"]
-        techs = ", ".join(r["whatweb"][:2]) if r["whatweb"] else "—"
-        shot  = "📸" if r["screenshot"] else "  "
-        print(
-            f"  [{done:>4}/{len(entries)}] {icon}  "
-            f"{r['host']:<45} {r['status']:<22} {techs} {shot}",
-            flush=True
-        )
-
-# ── Sort by status priority then host name ─────────────────────────────────
-STATUS_ORDER = {
-    "OPEN": 0, "OPEN (Auth)": 1, "OPEN (Error)": 2,
-    "TCP OPEN": 3, "DNS ONLY": 4, "CLOSED": 5, "NO_DNS": 6
+SECRET_PATTERNS: dict[str, str] = {
+    "AWS Access Key":      r"AKIA[0-9A-Z]{16}",
+    "AWS Secret Key":      r"(?i)aws.{0,30}secret.{0,30}['\"][0-9a-zA-Z/+]{40}['\"]",
+    "Google API Key":      r"AIza[0-9A-Za-z\-_]{35}",
+    "GitHub Token":        r"gh[pousr]_[A-Za-z0-9_]{36,}",
+    "Slack Token":         r"xox[baprs]-[0-9A-Za-z\-]{10,}",
+    "Slack Webhook":       r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[a-zA-Z0-9]+",
+    "Stripe Key":          r"(?:sk|pk)_(test|live)_[0-9a-zA-Z]{24,}",
+    "SendGrid Key":        r"SG\.[a-zA-Z0-9_\-]{22}\.[a-zA-Z0-9_\-]{43}",
+    "JWT Token":           r"eyJ[a-zA-Z0-9_\-]+\.eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+",
+    "Bearer Token":        r"[Bb]earer\s+[A-Za-z0-9\-_\.]{20,}",
+    "Private Key Block":   r"-----BEGIN\s(?:RSA\s)?PRIVATE KEY-----",
+    "Password in URL":     r"[a-zA-Z]{3,10}://[^/\s:@]{3,20}:[^/\s:@]{3,20}@",
+    "Firebase URL":        r"https?://[a-z0-9\-]+\.firebaseio\.com",
+    "Mailgun Key":         r"key-[0-9a-zA-Z]{32}",
+    "NPM Token":           r"npm_[A-Za-z0-9]{36}",
+    "Telegram Bot Token":  r"[0-9]{8,10}:[a-zA-Z0-9_\-]{35}",
+    "Twilio Account SID":  r"AC[a-zA-Z0-9]{32}",
+    "Twilio Auth Token":   r"(?i)twilio.{0,20}['\"][a-f0-9]{32}['\"]",
+    "Heroku API Key":      r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+    "Azure Storage Key":   r"DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{88}",
+    "DigitalOcean Token":  r"dop_v1_[a-f0-9]{64}",
+    "Cloudinary URL":      r"cloudinary://[0-9]+:[A-Za-z0-9_\-]+@[a-z0-9]+",
+    "Generic API Key":     r"(?i)(?:api[_\-]?key|apikey|access[_\-]?token|auth[_\-]?token|secret[_\-]?key)['\"\s:=]+([A-Za-z0-9_\-]{20,})",
+    "Generic Secret":      r"(?i)(?:secret|password|passwd|pwd)\s*[=:]\s*['\"]([A-Za-z0-9_\-!@#$%^&*]{12,})['\"]",
 }
-results.sort(key=lambda x: (STATUS_ORDER.get(x["status"], 9), x["host"]))
 
-# ── Aggregate stats ────────────────────────────────────────────────────────
-counts     = {}
-shot_count = 0
-for r in results:
-    counts[r["status"]] = counts.get(r["status"], 0) + 1
-    if r.get("screenshot"):
-        shot_count += 1
+FALSE_POSITIVE_RE = re.compile(
+    r"^[a-z_\-]+$|^[0-9\.]+$|example\.com|localhost|placeholder|"
+    r"your[_\-]?key|my[_\-]?secret|<[A-Z_]+>|\$\{[A-Z_]+\}|"
+    r"xxx+|test[_\-]key|dummy|changeme|insert[_\-]here|"
+    r"REPLACE_ME|TODO|FIXME|\*{4,}",
+    re.IGNORECASE,
+)
 
-open_count   = sum(v for k, v in counts.items() if "OPEN" in k)
-closed_count = counts.get("CLOSED", 0) + counts.get("NO_DNS", 0)
-scan_dur     = round(time.time() - START_TIME, 1)
-scan_dt      = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-
-# ── JSON output ────────────────────────────────────────────────────────────
-json_path  = os.path.join(OUTPUT_DIR, "scan_results.json")
-json_clean = [{k: v for k, v in r.items() if k not in ("screenshot", "shot_file")}
-              for r in results]
-with open(json_path, "w") as fh:
-    json.dump({
-        "tool": "Am I reachable? v3.0",
-        "scan_date":   scan_dt + " UTC",
-        "lang":        LANG,
-        "total":       len(results),
-        "open":        open_count,
-        "closed":      closed_count,
-        "screenshots": shot_count,
-        "duration_s":  scan_dur,
-        "counts":      counts,
-        "results":     json_clean,
-    }, fh, indent=2, ensure_ascii=False)
-print(f"\n[✓] JSON  → {json_path}")
-
-# ── CSV output ─────────────────────────────────────────────────────────────
-csv_path = os.path.join(OUTPUT_DIR, "scan_results.csv")
-csv_fields = [
-    "status_icon", "status", "host", "domain", "is_subdomain",
-    "dns_resolved", "ips", "http_code", "scheme", "tcp_443", "tcp_80",
-    "server", "x_powered_by", "content_type", "hsts", "x_frame_options",
-    "x_content_type", "csp", "whatweb", "final_url", "scan_time_s", "scanned_at",
+COMMON_JS_PATHS: list[str] = [
+    "/app.js","/main.js","/index.js","/bundle.js","/init.js",
+    "/config.js","/settings.js","/env.js","/constants.js",
+    "/api.js","/utils.js","/helpers.js","/common.js","/global.js",
+    "/auth.js","/router.js","/routes.js","/store.js","/services.js",
+    "/js/app.js","/js/main.js","/js/index.js","/js/config.js",
+    "/js/api.js","/js/utils.js","/js/helpers.js","/js/auth.js",
+    "/static/js/app.js","/static/js/main.js","/static/js/index.js",
+    "/assets/js/app.js","/assets/js/main.js","/assets/js/config.js",
+    "/assets/js/api.js","/assets/js/utils.js",
+    "/dist/app.js","/dist/main.js","/dist/bundle.js",
+    "/build/app.js","/build/main.js","/build/bundle.js",
+    "/public/js/app.js","/public/js/main.js",
+    "/src/app.js","/src/main.js","/src/index.js",
+    "/v1/app.js","/v2/app.js","/api/config.js",
+    "/wp-content/themes/app.js","/wp-includes/js/api.js",
 ]
-with open(csv_path, "w", newline="", encoding="utf-8") as fh:
-    w = csv.DictWriter(fh, fieldnames=csv_fields, extrasaction="ignore")
-    w.writeheader()
-    for r in results:
-        row = dict(r)
-        row["ips"]     = ", ".join(row.get("ips", []))
-        row["whatweb"] = " | ".join(row.get("whatweb", []))
-        row.pop("screenshot", None)
-        row.pop("shot_file", None)
-        row.pop("dns_error", None)
-        row.pop("http_error", None)
-        w.writerow(row)
-print(f"[✓] CSV   → {csv_path}")
 
-# ── HTML output ────────────────────────────────────────────────────────────
-html_path = os.path.join(OUTPUT_DIR, "scan_results.html")
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
 
-STATUS_COLORS = {
-    "OPEN":         "#22c55e",
-    "OPEN (Auth)":  "#a78bfa",
-    "OPEN (Error)": "#f59e0b",
-    "TCP OPEN":     "#d4d4d8",
-    "DNS ONLY":     "#fb923c",
-    "CLOSED":       "#ef4444",
-    "NO_DNS":       "#71717a",
-}
 
-TECH_PALETTE = {
-    "apache": "#f97316",    "nginx": "#6ee7b7",    "php": "#c084fc",
-    "wordpress": "#fbbf24", "drupal": "#4ade80",   "joomla": "#fca5a5",
-    "iis": "#e2e8f0",       "jquery": "#facc15",   "react": "#7dd3fc",
-    "angular": "#f87171",   "vue": "#86efac",      "bootstrap": "#a78bfa",
-    "laravel": "#fda4af",   "django": "#6ee7b7",   "ruby": "#fca5a5",
-    "python": "#fde68a",    "node": "#86efac",     "express": "#d4d4d8",
-    "cloudflare": "#fb923c","aws": "#fbbf24",       "google": "#60a5fa",
-    "varnish": "#d8b4fe",   "mysql": "#5eead4",    "postgresql": "#93c5fd",
-    "shopify": "#bbf7d0",   "wix": "#d9f99d",      "squarespace": "#e5e7eb",
-    "next": "#f0f0f0",      "nuxt": "#4ade80",     "svelte": "#fdba74",
-    "typescript": "#93c5fd","go": "#67e8f9",        "rust": "#fca5a5",
-}
+# ═══════════════════════════════════════════════════════════════════════════
+# BANNER
+# ═══════════════════════════════════════════════════════════════════════════
 
-def tech_color(t):
-    tl = t.lower()
-    for k, c in TECH_PALETTE.items():
-        if k in tl:
-            return c
-    return "#a1a1aa"
+def banner() -> None:
+    print(f"""{BOLD}{RED}
+   ██╗███████╗██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
+   ██║██╔════╝██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
+   ██║███████╗██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║
+   ██║╚════██║██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
+   ██║███████║██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
+   ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
+{RESET}{DIM}   v4  •  JS Recon & Secret Hunter  •  curl/wget downloader{RESET}
+   {DIM}gau + katana + waybackurls + hakrawler + active scrape + brute{RESET}
+""")
 
-# ── Build table rows ────────────────────────────────────────────────────────
-rows_html = ""
-for idx, r in enumerate(results):
-    color    = STATUS_COLORS.get(r["status"], "#71717a")
-    ips_str  = ", ".join(r["ips"]) if r["ips"] else "—"
-    http_str = str(r["http_code"]) if r["http_code"] else "—"
-    server   = r.get("server") or "—"
-    xpwr     = r.get("x_powered_by") or ""
 
-    hsts_badge = '<span class="badge b-green">HSTS</span>' if r["hsts"] else ""
-    csp_badge  = '<span class="badge b-amber">CSP</span>'  if r["csp"]  else ""
-    xf_badge   = f'<span class="badge b-zinc">{r["x_frame_options"]}</span>' if r["x_frame_options"] else ""
-    tcp_badges = ""
-    if r["tcp_443"]: tcp_badges += '<span class="badge b-teal">443</span>'
-    if r["tcp_80"]:  tcp_badges += '<span class="badge b-teal">80</span>'
-    type_badge = (f'<span class="badge b-purple">{L_apex}</span>'
-                  if not r["is_subdomain"]
-                  else f'<span class="badge b-zinc">{L_sub}</span>')
+# ═══════════════════════════════════════════════════════════════════════════
+# TOOL CHECK
+# ═══════════════════════════════════════════════════════════════════════════
 
-    url_raw  = r.get("final_url") or ""
-    url_disp = url_raw[:50] + ("…" if len(url_raw) > 50 else "")
-    url_link = f'<a href="{url_raw}" target="_blank" class="url-link">{url_disp}</a>' if url_raw else "—"
+def check_tools() -> bool:
+    print(f"\n{BOLD}  Tool Check{RESET}")
+    print(f"  {'─'*50}")
 
-    tech_tags = ""
-    for t in r.get("whatweb", []):
-        tc = tech_color(t)
-        tech_tags += (f'<span class="tech-tag" '
-                      f'style="background:{tc}18;color:{tc};border:1px solid {tc}35">'
-                      f'{t}</span>')
-    if not tech_tags:
-        tech_tags = '<span class="muted">—</span>'
+    missing = []
+    for tool, install in REQUIRED_TOOLS.items():
+        found = shutil.which(tool)
+        if found:
+            print(f"  {GREEN}✔{RESET}  {BOLD}{tool:<16}{RESET} {DIM}{found}{RESET}")
+        else:
+            missing.append((tool, install))
+            print(f"  {RED}✘{RESET}  {BOLD}{tool:<16}{RESET} {DIM}→ {install}{RESET}")
 
-    xpwr_html = f'<br><span class="muted xs">{xpwr}</span>' if xpwr else ""
+    print()
+    for tool, install in OPTIONAL_TOOLS.items():
+        found = shutil.which(tool)
+        status = f"{GREEN}✔{RESET}" if found else f"{YELLOW}~{RESET}"
+        label  = DIM + "optional" + RESET if not found else ""
+        print(f"  {status}  {tool:<16} {label}")
 
-    if r.get("screenshot"):
-        b64 = r["screenshot"]
-        shot_cell = (
-            f'<div class="thumb" onclick="openModal(\'m{idx}\')">'
-            f'<img src="data:image/png;base64,{b64}" alt="ss" loading="lazy">'
-            f'<div class="t-ovl">🔍 {L_zoom}</div>'
-            f'</div>'
-            f'<div id="m{idx}" class="modal" '
-            f'onclick="this.classList.remove(\'open\');document.body.style.overflow=\'\'">'
-            f'<div class="mbox" onclick="event.stopPropagation()">'
-            f'<div class="mhdr"><code>{r["host"]}</code>'
-            f'<button onclick="document.getElementById(\'m{idx}\').classList.remove(\'open\');'
-            f'document.body.style.overflow=\'\'">✕</button></div>'
-            f'<img src="data:image/png;base64,{b64}" alt="ss" '
-            f'style="width:100%;display:block;border-radius:0 0 12px 12px">'
-            f'</div></div>'
-        )
+    print()
+    if missing:
+        print(clr(f"  [!] {len(missing)} required tool(s) missing. Install them and retry.\n", RED))
+        return False
+
+    # Detect download backend
+    if shutil.which("curl"):
+        print(info(f"Download backend : {BOLD}curl{RESET}"))
+    elif shutil.which("wget"):
+        print(info(f"Download backend : {BOLD}wget{RESET}"))
     else:
-        shot_cell = '<span class="muted">—</span>'
+        print(warn("Neither curl nor wget found — using Python urllib as fallback"))
 
-    rows_html += (
-        f'<tr data-status="{r["status"]}">'
-        f'<td><span class="chip">'
-        f'<span class="dot" style="background:{color}"></span>'
-        f'<span style="color:{color};font-weight:600">{r["status_icon"]} {r["status"]}</span>'
-        f'</span></td>'
-        f'<td class="mono">{r["host"]} {type_badge}</td>'
-        f'<td class="muted xs">{r["domain"]}</td>'
-        f'<td class="xs" style="color:#a1a1aa">{ips_str}</td>'
-        f'<td><span class="http-code" style="color:{color}">{http_str}</span></td>'
-        f'<td>{tcp_badges}</td>'
-        f'<td class="xs" style="color:#d4d4d8">{server}{xpwr_html}</td>'
-        f'<td class="tech-cell">{tech_tags}</td>'
-        f'<td>{hsts_badge}{csp_badge}{xf_badge}</td>'
-        f'<td>{url_link}</td>'
-        f'<td class="shot-cell">{shot_cell}</td>'
-        f'<td class="muted xs">{r["scan_time_s"]}s</td>'
-        f'</tr>\n'
+    return True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DIRECTORY SETUP
+# ═══════════════════════════════════════════════════════════════════════════
+
+def setup_dirs(base: Path) -> dict[str, Path]:
+    dirs: dict[str, Path] = {
+        "base":    base,
+        "live":    base / "live",
+        "urls":    base / "urls",
+        "js":      base / "js",
+        "dl":      base / "js" / "downloaded",
+        "secrets": base / "secrets",
+        "raw":     base / "secrets" / "raw",
+        "logs":    base / "logs",
+    }
+    for d in dirs.values():
+        d.mkdir(parents=True, exist_ok=True)
+    return dirs
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LOGGER
+# ═══════════════════════════════════════════════════════════════════════════
+
+def setup_logger(log_dir: Path) -> logging.Logger:
+    log = logging.getLogger("jsrecon")
+    log.setLevel(logging.DEBUG)
+    fh = logging.FileHandler(
+        log_dir / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     )
+    fh.setFormatter(logging.Formatter("%(asctime)s  [%(levelname)-8s]  %(message)s"))
+    log.addHandler(fh)
+    return log
 
-# ── Stat cards ──────────────────────────────────────────────────────────────
-stat_cards = ""
-for status, color in STATUS_COLORS.items():
-    c = counts.get(status, 0)
-    if c:
-        stat_cards += (
-            f'<div class="stat-card" style="border-left-color:{color}">'
-            f'<div class="stat-n" style="color:{color}">{c}</div>'
-            f'<div class="stat-l">{status}</div>'
-            f'</div>'
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PROGRESS BAR
+# ═══════════════════════════════════════════════════════════════════════════
+
+class ProgressBar:
+    WIDTH = 36
+
+    def __init__(self, total: int, label: str = ""):
+        self.total = max(total, 1)
+        self.label = label
+        self.n     = 0
+        self.t0    = time.time()
+
+    def update(self, n: int = 1, suffix: str = "") -> None:
+        self.n = min(self.n + n, self.total)
+        pct    = self.n / self.total
+        done   = int(self.WIDTH * pct)
+        bar    = f"{GREEN}{'█' * done}{DIM}{'░' * (self.WIDTH - done)}{RESET}"
+        elapsed = time.time() - self.t0
+        eta_s   = (elapsed / self.n * (self.total - self.n)) if self.n else 0
+        eta_str = f"ETA {int(eta_s)}s" if eta_s < 3600 else f"ETA {eta_s / 3600:.1f}h"
+
+        line = (
+            f"\r  {BOLD}{self.label:<22}{RESET}"
+            f"[{bar}] {CYAN}{pct * 100:5.1f}%{RESET}"
+            f"  {self.n}/{self.total}  {DIM}{eta_str}  {suffix}{RESET}"
         )
-if shot_count:
-    stat_cards += (
-        f'<div class="stat-card" style="border-left-color:#22d3ee">'
-        f'<div class="stat-n" style="color:#22d3ee">{shot_count}</div>'
-        f'<div class="stat-l">📸 Screenshots</div>'
-        f'</div>'
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
+        if self.n >= self.total:
+            sys.stdout.write(
+                f"\r  {BOLD}{self.label:<22}{RESET}"
+                f"[{GREEN}{'█' * self.WIDTH}{RESET}]"
+                f" {GREEN}100.0%{RESET}  done in {elapsed:.1f}s"
+                f"{'                    '}\n"
+            )
+            sys.stdout.flush()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HTTP HELPERS  (curl → wget → urllib fallback)
+# Respects global INSECURE flag:
+#   curl  → adds  -k / --insecure
+#   wget  → adds  --no-check-certificate  (already default, kept explicit)
+#   urllib → wraps with ssl.create_default_context(check_hostname=False)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _curl_fetch(url: str, timeout: int, head_only: bool = False) -> Optional[bytes]:
+    """
+    Primary downloader: curl.
+
+    --insecure / -k  added when global INSECURE=True — skips TLS cert
+                     verification (self-signed certs, internal CAs, etc.)
+    """
+    cmd = [
+        "curl",
+        "--silent",
+        "--location",
+        "--compressed",
+        "--max-time",    str(timeout),
+        "--retry",       "2",
+        "--retry-delay", "1",
+        "--fail",
+        "--user-agent",  USER_AGENT,
+        "--header",      "Accept: */*",
+        "--max-filesize","15728640",   # 15 MB
+    ]
+    if INSECURE:
+        cmd.append("--insecure")      # -k  skip TLS verification
+    if head_only:
+        cmd.append("--head")
+    else:
+        cmd += ["--output", "-"]      # write to stdout
+    cmd.append(url)
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
+        return result.stdout if result.returncode == 0 else None
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+
+
+def _wget_fetch(url: str, timeout: int) -> Optional[bytes]:
+    """
+    Fallback downloader: wget.
+    --no-check-certificate  skip TLS verification when INSECURE=True.
+    """
+    cmd = [
+        "wget",
+        "--quiet",
+        f"--timeout={timeout}",
+        "--tries=2",
+        f"--user-agent={USER_AGENT}",
+        "--no-check-certificate",     # always set; harmless for valid certs
+        "-O", "-",
+        url,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
+        return result.stdout if result.returncode == 0 else None
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+
+
+def _urllib_fetch(url: str, timeout: int) -> Optional[bytes]:
+    """
+    Last-resort fallback using stdlib urllib.
+    Creates an unverified SSL context when INSECURE=True.
+    """
+    import ssl
+    import urllib.request as ureq
+
+    ctx: Optional[ssl.SSLContext] = None
+    if INSECURE:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode    = ssl.CERT_NONE
+
+    try:
+        req = ureq.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
+        with ureq.urlopen(req, timeout=timeout, context=ctx) as resp:
+            return resp.read(15 * 1024 * 1024)   # 15 MB cap
+    except Exception:
+        return None
+
+
+def fetch(url: str, timeout: int = 15) -> Optional[str]:
+    """
+    Download URL content as a decoded string.
+    Tries curl → wget → urllib in order.
+    Returns None on any failure.
+    """
+    raw: Optional[bytes] = None
+
+    if shutil.which("curl"):
+        raw = _curl_fetch(url, timeout)
+    if raw is None and shutil.which("wget"):
+        raw = _wget_fetch(url, timeout)
+    if raw is None:
+        raw = _urllib_fetch(url, timeout)
+
+    if raw and len(raw) > 50:
+        return raw.decode("utf-8", errors="replace")
+    return None
+
+
+def head_ok(url: str, timeout: int = 8) -> bool:
+    """
+    Probe whether a URL exists and is JavaScript.
+    Uses curl --head (fast, no body download).
+    Passes --insecure when INSECURE=True.
+    """
+    if shutil.which("curl"):
+        cmd = [
+            "curl",
+            "--silent", "--head",
+            "--location",
+            f"--max-time={timeout}",
+            "--fail",
+            f"--user-agent={USER_AGENT}",
+            "--write-out", "%{http_code}|||%{content_type}",
+            "--output", "/dev/null",
+        ]
+        if INSECURE:
+            cmd.append("--insecure")
+        cmd.append(url)
+
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 3)
+            out = r.stdout.strip()
+            if "|||" in out:
+                code, ct = out.rsplit("|||", 1)
+                return (
+                    code.strip() == "200"
+                    and ("javascript" in ct or "ecmascript" in ct or url.endswith(".js"))
+                )
+        except Exception:
+            pass
+
+    content = fetch(url, timeout=timeout)
+    return bool(content and len(content) > 50)
+
+
+def url_to_filename(url: str, dl_dir: Path) -> Path:
+    """Convert a URL to a safe, deterministic filename inside dl_dir."""
+    parsed   = urlparse(url)
+    raw_name = f"{parsed.netloc}{parsed.path}".lstrip("/")
+    raw_name = re.sub(r"[^\w.\-]", "_", raw_name)[:160]
+    uid      = hashlib.sha256(url.encode()).hexdigest()[:6]
+    filename = f"{uid}_{raw_name}"
+    if not filename.endswith(".js"):
+        filename += ".js"
+    return dl_dir / filename
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════════════════
+
+def is_js_url(url: str) -> bool:
+    path = urlparse(url).path.lower()
+    return path.endswith(".js") or ".js?" in path or ".js#" in path
+
+
+def dedup(lst: list) -> list:
+    seen: set = set()
+    out: list = []
+    for x in lst:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+def normalise_host(host: str) -> str:
+    """
+    Ensure a host string is a proper URL (adds https:// if missing).
+    Accepts bare domain: example.com  →  https://example.com
+    """
+    host = host.strip()
+    if not host.startswith("http://") and not host.startswith("https://"):
+        host = "https://" + host
+    return host.rstrip("/")
+
+
+def bare_domain(host: str) -> str:
+    """Extract just the netloc/domain from a URL or bare domain string."""
+    parsed = urlparse(normalise_host(host))
+    return parsed.netloc or host.replace("https://", "").replace("http://", "").rstrip("/")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 1 — LIVE HOST DETECTION
+# ═══════════════════════════════════════════════════════════════════════════
+
+def run_httpx(subs_file: Path, live_file: Path,
+              threads: int, log: logging.Logger) -> list[str]:
+    print(clr(f"\n{'━'*60}", DIM))
+    print(clr("  [1/5]  Live Host Detection  →  httpx", BOLD))
+    if INSECURE:
+        print(clr("         ⚠  TLS verification disabled (--insecure)", YELLOW))
+    print(clr(f"{'━'*60}", DIM))
+
+    cmd = [
+        "httpx",
+        "-l",            str(subs_file),
+        "-threads",      str(threads),
+        "-silent",
+        "-no-color",
+        "-o",            str(live_file),
+        "-timeout",      "10",
+        "-retries",      "2",
+        "-follow-redirects",
+        "-status-code",
+        "-title",
+        "-tech-detect",
+        "-web-server",
+    ]
+    if INSECURE:
+        cmd.append("-no-verify-ssl")   # httpx flag for skipping TLS verification
+
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        print(err("httpx timed out — partial results may be used"))
+
+    live: list[str] = []
+    if live_file.exists():
+        for line in live_file.read_text().splitlines():
+            url = line.strip().split(" ")[0]
+            if url.startswith("http"):
+                live.append(url)
+        live = dedup(live)
+        live_file.write_text("\n".join(live) + "\n")
+
+    print(ok(f"{BOLD}{len(live)}{RESET} live hosts  →  {DIM}{live_file}{RESET}"))
+    log.info("httpx: %d live hosts", len(live))
+    return live
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 2 — URL COLLECTION
+# ═══════════════════════════════════════════════════════════════════════════
+
+def run_gau(host: str, timeout: int = 120) -> list[str]:
+    """
+    Passive URL harvesting from wayback, commoncrawl, otx, urlscan.
+
+    Note: gau does not have a native --insecure flag; it queries public
+    archives (not the target directly), so TLS to the target is not
+    relevant here.  The archives themselves use valid TLS.
+    """
+    bare = bare_domain(host)
+    cmd = [
+        "gau",
+        "--providers", GAU_PROVIDERS,
+        "--threads",   "5",
+        "--retries",   "3",
+        "--timeout",   str(timeout),
+        "--blacklist", "ttf,woff,woff2,eot,svg,png,jpg,jpeg,gif,ico,css,pdf,mp4,mp3,zip",
+        bare,
+    ]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 30)
+        return [l.strip() for l in r.stdout.splitlines() if l.strip().startswith("http")]
+    except Exception:
+        return []
+
+
+def run_katana(url: str, timeout: int = 120) -> list[str]:
+    """
+    Active crawler with headless JS engine.
+    -no-sandbox and -ignore-query-params added.
+    -insecure passed when INSECURE=True.
+    """
+    cmd = [
+        "katana",
+        "-u",           url,
+        "-jc",
+        "-kf",          "all",
+        "-aff",
+        "-depth",       "5",
+        "-concurrency", "20",
+        "-parallelism", "10",
+        "-timeout",     str(timeout),
+        "-silent",
+        "-no-color",
+        "-ef",          "css,png,jpg,jpeg,gif,ico,svg,ttf,woff,woff2,eot,pdf,mp4,mp3,zip",
+        "-strategy",    "depth-first",
+    ]
+    if INSECURE:
+        cmd.append("-insecure")        # katana flag for skipping TLS verification
+
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 30)
+        return [l.strip() for l in r.stdout.splitlines() if l.strip().startswith("http")]
+    except Exception:
+        return []
+
+
+def run_waybackurls(host: str, timeout: int = 90) -> list[str]:
+    if not shutil.which("waybackurls"):
+        return []
+    bare = bare_domain(host)
+    try:
+        r = subprocess.run(
+            ["waybackurls", bare],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        return [l.strip() for l in r.stdout.splitlines() if l.strip().startswith("http")]
+    except Exception:
+        return []
+
+
+def run_hakrawler(url: str, timeout: int = 90) -> list[str]:
+    if not shutil.which("hakrawler"):
+        return []
+    cmd = ["hakrawler", "-url", url, "-depth", "3", "-js", "-plain"]
+    if INSECURE:
+        cmd.append("-insecure")        # hakrawler supports -insecure
+
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return [l.strip() for l in r.stdout.splitlines() if l.strip().startswith("http")]
+    except Exception:
+        return []
+
+
+# ── Active <script src="…"> extraction ──────────────────────────────────────
+
+class ScriptTagParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.srcs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        if tag.lower() == "script":
+            for k, v in attrs:
+                if k.lower() == "src" and v and not v.startswith("data:"):
+                    self.srcs.append(v.strip())
+
+
+def parse_script_tags(base_url: str, html: str) -> list[str]:
+    parser = ScriptTagParser()
+    try:
+        parser.feed(html)
+    except Exception:
+        pass
+    parsed = urlparse(base_url)
+    out: list[str] = []
+    for src in parser.srcs:
+        if src.startswith("//"):
+            src = f"{parsed.scheme}:{src}"
+        elif not src.startswith("http"):
+            src = urljoin(base_url, src)
+        out.append(src)
+    return out
+
+
+def active_html_scrape(live_hosts: list[str], threads: int,
+                       log: logging.Logger) -> list[str]:
+    """Fetch every live host's HTML and extract <script src="…"> tags."""
+    print(info("Active HTML scrape  <script src> extraction …"))
+    found: set[str] = set()
+    pb = ProgressBar(len(live_hosts), "HTML scrape")
+
+    def scrape(url: str) -> list[str]:
+        html = fetch(url, timeout=15)
+        return parse_script_tags(url, html) if html else []
+
+    with ThreadPoolExecutor(max_workers=min(threads, 30)) as ex:
+        futs = {ex.submit(scrape, u): u for u in live_hosts}
+        for fut in as_completed(futs):
+            try:
+                found.update(fut.result())
+            except Exception:
+                pass
+            pb.update(1, f"({len(found)} scripts)")
+
+    log.info("HTML scrape: %d script URLs", len(found))
+    return list(found)
+
+
+def brute_js_paths(live_hosts: list[str], threads: int,
+                   log: logging.Logger) -> list[str]:
+    """Probe common JS paths on every live host using curl --head."""
+    print(info(f"Brute-force  {len(COMMON_JS_PATHS)} common JS paths …"))
+    tasks = [h.rstrip("/") + p for h in live_hosts for p in COMMON_JS_PATHS]
+    found: list[str] = []
+    pb = ProgressBar(len(tasks), "JS path brute")
+
+    with ThreadPoolExecutor(max_workers=min(threads, 60)) as ex:
+        futs = {ex.submit(head_ok, u): u for u in tasks}
+        for fut in as_completed(futs):
+            url = futs[fut]
+            try:
+                if fut.result():
+                    found.append(url)
+            except Exception:
+                pass
+            pb.update(1, f"({len(found)} found)")
+
+    log.info("Brute JS paths: %d", len(found))
+    return found
+
+
+def collect_urls(live_hosts: list[str], urls_file: Path,
+                 threads: int, log: logging.Logger) -> list[str]:
+    print(clr(f"\n{'━'*60}", DIM))
+    print(clr("  [2/5]  URL Collection", BOLD))
+    print(clr(f"{'━'*60}", DIM))
+    print(info(f"Sources: {DIM}gau ({GAU_PROVIDERS})  katana (-jc)  "
+               f"waybackurls  hakrawler  active-HTML{RESET}\n"))
+    log.info("URL collection: %d hosts", len(live_hosts))
+
+    all_urls: set[str] = set()
+
+    tasks = [
+        (tool, host)
+        for host in live_hosts
+        for tool in ("gau", "katana", "waybackurls", "hakrawler")
+    ]
+    pb = ProgressBar(len(tasks), "Passive sources")
+
+    def _passive(args: tuple[str, str]) -> list[str]:
+        tool, target = args
+        dispatch = {
+            "gau":         run_gau,
+            "katana":      run_katana,
+            "waybackurls": run_waybackurls,
+            "hakrawler":   run_hakrawler,
+        }
+        return dispatch[tool](target)
+
+    with ThreadPoolExecutor(max_workers=min(threads, 24)) as ex:
+        futs = {ex.submit(_passive, t): t for t in tasks}
+        for fut in as_completed(futs):
+            try:
+                all_urls.update(fut.result())
+            except Exception as exc:
+                log.debug("passive error: %s", exc)
+            pb.update(1, f"({len(all_urls)} urls)")
+
+    scripts = active_html_scrape(live_hosts, threads, log)
+    all_urls.update(scripts)
+    print(ok(f"Active HTML scrape   +{len(scripts):,} script URLs"))
+
+    result = dedup(sorted(all_urls))
+    urls_file.write_text("\n".join(result) + "\n")
+    print(ok(f"Total unique URLs    {BOLD}{len(result):,}{RESET}  →  {DIM}{urls_file}{RESET}"))
+    log.info("URL collection: %d unique", len(result))
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 3 — JS EXTRACTION + BRUTE + FILTER
+# ═══════════════════════════════════════════════════════════════════════════
+
+def extract_js_urls(
+    all_urls: list[str],
+    live_hosts: list[str],
+    js_dir: Path,
+    threads: int,
+    log: logging.Logger,
+) -> tuple[list[str], list[str]]:
+    print(clr(f"\n{'━'*60}", DIM))
+    print(clr("  [3/5]  JS Extraction & Filtering", BOLD))
+    print(clr(f"{'━'*60}", DIM))
+
+    js_set: set[str] = {u for u in all_urls if is_js_url(u)}
+    print(ok(f"From URL collection    {len(js_set):,}"))
+
+    brute = brute_js_paths(live_hosts, threads, log)
+    js_set.update(brute)
+    print(ok(f"From brute-force paths +{len(brute):,}"))
+
+    js_all    = dedup(sorted(js_set))
+    js_custom = [u for u in js_all if not JS_EXCLUDE_RE.search(u)]
+
+    (js_dir / "js_urls.txt").write_text("\n".join(js_all)    + "\n")
+    (js_dir / "custom_js.txt").write_text("\n".join(js_custom) + "\n")
+
+    print(ok(f"JS total (all)         {BOLD}{len(js_all):,}{RESET}"))
+    print(ok(f"JS custom (no libs)    {BOLD}{len(js_custom):,}{RESET}"))
+    log.info("JS: all=%d  custom=%d", len(js_all), len(js_custom))
+    return js_all, js_custom
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 4 — DOWNLOAD JS FILES TO DISK
+# ═══════════════════════════════════════════════════════════════════════════
+
+def download_js(
+    js_urls: list[str],
+    dl_dir: Path,
+    threads: int,
+    log: logging.Logger,
+) -> dict[str, Path]:
+    """Download every JS URL and save to dl_dir with a deterministic filename."""
+    print(clr(f"\n{'━'*60}", DIM))
+    print(clr("  [4/5]  Downloading JS Files  →  disk", BOLD))
+    if INSECURE:
+        print(clr("         ⚠  TLS verification disabled (--insecure)", YELLOW))
+    print(clr(f"{'━'*60}", DIM))
+
+    backend = (
+        "curl" if shutil.which("curl") else
+        "wget" if shutil.which("wget") else
+        "urllib"
+    )
+    insecure_tag = f"  {YELLOW}[insecure]{RESET}" if INSECURE else ""
+    print(info(f"Backend: {BOLD}{backend}{RESET}{insecure_tag}   target: {BOLD}{dl_dir}{RESET}\n"))
+    log.info("Downloading %d JS files via %s (insecure=%s)", len(js_urls), backend, INSECURE)
+
+    downloaded: dict[str, Path] = {}
+    failed: list[str] = []
+    pb = ProgressBar(len(js_urls), "Downloading JS")
+
+    def _download_one(url: str) -> tuple[str, Optional[Path]]:
+        content = fetch(url, timeout=20)
+        if not content or len(content) < 50:
+            return url, None
+        filepath = url_to_filename(url, dl_dir)
+        try:
+            filepath.write_text(content, encoding="utf-8", errors="replace")
+            return url, filepath
+        except OSError as exc:
+            log.debug("write error %s: %s", filepath, exc)
+            return url, None
+
+    with ThreadPoolExecutor(max_workers=min(threads, 40)) as ex:
+        futs = {ex.submit(_download_one, u): u for u in js_urls}
+        for fut in as_completed(futs):
+            url, path = fut.result()
+            if path:
+                downloaded[url] = path
+            else:
+                failed.append(url)
+            pb.update(1, f"({len(downloaded)} ok  {len(failed)} fail)")
+
+    if failed:
+        (dl_dir / "_failed.txt").write_text("\n".join(failed) + "\n")
+
+    total_size = sum(p.stat().st_size for p in downloaded.values()) / 1024
+    print(ok(f"Downloaded  : {BOLD}{len(downloaded)}{RESET}/{len(js_urls)}  "
+             f"({total_size:.1f} KB total)"))
+    print(ok(f"Saved to    : {BOLD}{dl_dir}{RESET}"))
+    if failed:
+        print(warn(f"Failed      : {len(failed)}  →  {DIM}{dl_dir}/_failed.txt{RESET}"))
+
+    log.info("Downloaded: %d  failed: %d  size: %.1f KB", len(downloaded), len(failed), total_size)
+    return downloaded
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 5 — SECRET SCANNING
+# ═══════════════════════════════════════════════════════════════════════════
+
+Finding = dict[str, str]
+
+
+def scan_regex(dl_map: dict[str, Path], raw_dir: Path,
+               log: logging.Logger) -> list[Finding]:
+    findings: list[Finding] = []
+    compiled = {name: re.compile(pat) for name, pat in SECRET_PATTERNS.items()}
+
+    for url, filepath in dl_map.items():
+        try:
+            content = filepath.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for name, rx in compiled.items():
+            for m in rx.finditer(content):
+                snippet = m.group(0)[:200]
+                if len(snippet) < 12 or FALSE_POSITIVE_RE.search(snippet):
+                    continue
+                findings.append({
+                    "tool":  "regex",
+                    "type":  name,
+                    "url":   url,
+                    "file":  str(filepath),
+                    "match": snippet,
+                    "line":  str(content[: m.start()].count("\n") + 1),
+                })
+
+    (raw_dir / "regex_findings.json").write_text(json.dumps(findings, indent=2))
+    log.info("regex: %d findings", len(findings))
+    return findings
+
+
+def scan_gf(dl_map: dict[str, Path], raw_dir: Path,
+            log: logging.Logger) -> list[Finding]:
+    if not shutil.which("gf"):
+        return []
+
+    lines_list: list[str] = []
+    for url, filepath in dl_map.items():
+        try:
+            for line in filepath.read_text(encoding="utf-8", errors="replace").splitlines():
+                lines_list.append(f"{url}: {line}")
+        except OSError:
+            continue
+    combined = "\n".join(lines_list)
+
+    GF_PATTERNS = [
+        "aws-keys", "base64", "cors", "firebase", "json-sec", "jwt",
+        "php-errors", "rce", "redirect", "s3-buckets", "secrets",
+        "servers", "sqli", "ssrf", "ssti", "takeovers", "xss",
+    ]
+    findings: list[Finding] = []
+    for pat in GF_PATTERNS:
+        try:
+            r = subprocess.run(
+                ["gf", pat],
+                input=combined, capture_output=True, text=True, timeout=60,
+            )
+            if r.stdout.strip():
+                (raw_dir / f"gf_{pat}.txt").write_text(r.stdout)
+                for line in r.stdout.splitlines():
+                    if line.strip():
+                        findings.append({
+                            "tool":  "gf",
+                            "type":  pat,
+                            "url":   line.split(":")[0],
+                            "file":  "",
+                            "match": line[:300],
+                            "line":  "",
+                        })
+        except Exception:
+            pass
+
+    log.info("gf: %d findings", len(findings))
+    return findings
+
+
+def scan_trufflehog(dl_dir: Path, raw_dir: Path,
+                    log: logging.Logger) -> list[Finding]:
+    if not shutil.which("trufflehog"):
+        return []
+    findings: list[Finding] = []
+    try:
+        r = subprocess.run(
+            [
+                "trufflehog", "filesystem",
+                "--directory",    str(dl_dir),
+                "--json",
+                "--no-update",
+                "--only-verified",
+            ],
+            capture_output=True, text=True, timeout=300,
+        )
+        (raw_dir / "trufflehog.json").write_text(r.stdout)
+        for line in r.stdout.splitlines():
+            try:
+                obj = json.loads(line)
+                findings.append({
+                    "tool":  "trufflehog",
+                    "type":  obj.get("DetectorName", "unknown"),
+                    "url":   str(obj.get("SourceMetadata", ""))[:200],
+                    "file":  str(obj.get("SourceMetadata", ""))[:200],
+                    "match": str(obj.get("Raw", ""))[:200],
+                    "line":  "",
+                })
+            except Exception:
+                pass
+    except Exception as exc:
+        log.warning("trufflehog: %s", exc)
+
+    log.info("trufflehog: %d findings", len(findings))
+    return findings
+
+
+def _find_secretfinder() -> Optional[str]:
+    candidates = [
+        "SecretFinder.py",
+        os.path.expanduser("~/tools/SecretFinder/SecretFinder.py"),
+        "/opt/SecretFinder/SecretFinder.py",
+    ]
+    for p in candidates:
+        if Path(p).exists():
+            return p
+    return shutil.which("SecretFinder.py")
+
+
+def scan_secretfinder(dl_map: dict[str, Path], raw_dir: Path,
+                      log: logging.Logger) -> list[Finding]:
+    sf = _find_secretfinder()
+    if not sf:
+        return []
+    findings: list[Finding] = []
+    pb = ProgressBar(len(dl_map), "SecretFinder")
+    for url, filepath in dl_map.items():
+        try:
+            r = subprocess.run(
+                ["python3", sf, "-i", str(filepath), "-o", "cli"],
+                capture_output=True, text=True, timeout=30,
+            )
+            for line in r.stdout.splitlines():
+                if line.strip() and not line.startswith("["):
+                    findings.append({
+                        "tool":  "SecretFinder",
+                        "type":  "auto",
+                        "url":   url,
+                        "file":  str(filepath),
+                        "match": line[:300],
+                        "line":  "",
+                    })
+        except Exception:
+            pass
+        pb.update(1)
+
+    log.info("SecretFinder: %d findings", len(findings))
+    return findings
+
+
+def dedup_findings(lst: list[Finding]) -> list[Finding]:
+    seen: set[str] = set()
+    out: list[Finding] = []
+    for f in lst:
+        key = f"{f.get('type', '')}|{f.get('match', '')[:80]}"
+        if key not in seen:
+            seen.add(key)
+            out.append(f)
+    return out
+
+
+def write_report(
+    all_findings: list[Finding],
+    report_file: Path,
+    stats: dict,
+    log: logging.Logger,
+) -> None:
+    high_conf = dedup_findings([
+        f for f in all_findings
+        if len(f.get("match", "")) >= 12
+        and not FALSE_POSITIVE_RE.search(f.get("match", ""))
+    ])
+
+    by_type: dict[str, list[Finding]] = {}
+    for f in high_conf:
+        by_type.setdefault(f["type"], []).append(f)
+
+    sep   = "═" * 70
+    lines = [
+        sep,
+        "  JS RECON SECRET HUNTER  —  FINAL REPORT",
+        f"  Generated      : {datetime.now():%Y-%m-%d  %H:%M:%S}",
+        f"  Mode           : {'single-domain' if stats.get('single_domain') else 'multi-subdomain'}",
+        f"  TLS verify     : {'disabled (--insecure)' if INSECURE else 'enabled'}",
+        f"  Live hosts     : {stats.get('live', 0):,}",
+        f"  URLs collected : {stats.get('urls', 0):,}",
+        f"  JS files total : {stats.get('js_all', 0):,}",
+        f"  JS custom      : {stats.get('js_custom', 0):,}",
+        f"  JS downloaded  : {stats.get('js_dl', 0):,}",
+        f"  Raw findings   : {len(all_findings):,}",
+        f"  High-confidence: {len(high_conf):,}",
+        sep, "",
+    ]
+
+    if not high_conf:
+        lines += [
+            "  No high-confidence secrets found.",
+            "  ─ Check secrets/raw/regex_findings.json for raw matches.",
+            "  ─ Check secrets/raw/trufflehog.json for TruffleHog output.",
+            "",
+        ]
+    else:
+        for stype, items in sorted(by_type.items(), key=lambda x: -len(x[1])):
+            lines += [
+                f"┌─  {stype}  ({len(items)} finding{'s' if len(items) > 1 else ''})",
+            ]
+            for item in items:
+                lines += [
+                    f"│   Tool  : {item.get('tool', '─')}",
+                    f"│   URL   : {item.get('url', '─')}",
+                    f"│   File  : {item.get('file', '─')}",
+                    f"│   Line  : {item.get('line', '─')}",
+                    f"│   Match : {item.get('match', '─')[:150]}",
+                    "│",
+                ]
+            lines.append("")
+
+    report_file.write_text("\n".join(lines))
+    print(ok(f"Report           →  {BOLD}{report_file}{RESET}"))
+    print(ok(f"High-confidence findings : {BOLD}{len(high_conf)}{RESET}"))
+    log.info("Report: %d high-confidence findings", len(high_conf))
+
+
+def run_secret_scanning(
+    dl_map: dict[str, Path],
+    dirs: dict[str, Path],
+    stats: dict,
+    log: logging.Logger,
+) -> None:
+    print(clr(f"\n{'━'*60}", DIM))
+    print(clr("  [5/5]  Secret Scanning  (all tools in parallel)", BOLD))
+    print(clr(f"{'━'*60}", DIM))
+
+    all_findings: list[Finding] = []
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futs: dict = {
+            ex.submit(scan_regex,        dl_map, dirs["raw"], log): "regex",
+            ex.submit(scan_gf,           dl_map, dirs["raw"], log): "gf",
+            ex.submit(scan_trufflehog,   dirs["dl"], dirs["raw"], log): "trufflehog",
+            ex.submit(scan_secretfinder, dl_map, dirs["raw"], log): "SecretFinder",
+        }
+        for fut in as_completed(futs):
+            tool = futs[fut]
+            try:
+                res = fut.result()
+                all_findings.extend(res)
+                icon = GREEN + "✔" + RESET if res else DIM + "─" + RESET
+                print(f"  {icon}  {tool:<16} {len(res):>5} findings")
+            except Exception as exc:
+                log.warning("%s error: %s", tool, exc)
+                print(warn(f"{tool:<16} skipped ({exc})"))
+
+    write_report(all_findings, dirs["secrets"] / "final_report.txt", stats, log)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ARGUMENT PARSING
+# ═══════════════════════════════════════════════════════════════════════════
+
+def parse_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(
+        prog="jsrecon",
+        description="JS Recon & Secret Hunter  —  v4  (curl/wget downloader)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+examples:
+  # Single domain scan
+  python3 jsrecon.py --domain example.com -o out/
+  python3 jsrecon.py --domain https://example.com -o out/ --insecure
+
+  # Multi-subdomain scan from file
+  python3 jsrecon.py -s subs.txt -o out/
+  python3 jsrecon.py -s subs.txt -o out/ --insecure --threads 50
+
+  # Advanced options
+  python3 jsrecon.py --domain example.com -o out/ --scan-all-js
+  python3 jsrecon.py -s subs.txt -o out/ --skip-live-check
+  python3 jsrecon.py -s subs.txt -o out/ --skip-url-collection
+  python3 jsrecon.py -s subs.txt -o out/ --skip-download
+        """,
     )
 
-# ── Assemble HTML ───────────────────────────────────────────────────────────
-cnt_tcp    = counts.get("TCP OPEN", 0)
-cnt_dns    = counts.get("DNS ONLY", 0)
-cnt_closed = counts.get("CLOSED", 0)
-cnt_nodns  = counts.get("NO_DNS", 0)
+    # ── Input (mutually exclusive: --domain OR -s/--subs) ─────────────────
+    input_grp = ap.add_mutually_exclusive_group(required=True)
+    input_grp.add_argument(
+        "-d", "--domain",
+        metavar="HOST",
+        help="Single domain/host to scan  (e.g. example.com or https://example.com)",
+    )
+    input_grp.add_argument(
+        "-s", "--subs",
+        metavar="FILE",
+        help="Path to subdomains list (one per line)",
+    )
 
-html = f"""<!DOCTYPE html>
-<html lang="{LANG}">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Am I reachable?</title>
-<style>
-:root {{
-  --bg:     #0a0a0a;
-  --s1:     #111111;
-  --s2:     #171717;
-  --s3:     #1f1f1f;
-  --bdr:    #2a2a2a;
-  --bdr2:   #333333;
-  --txt:    #f0f0f0;
-  --muted:  #71717a;
-  --sm:     #52525b;
-}}
-*,*::before,*::after {{ margin:0;padding:0;box-sizing:border-box }}
-body {{ background:var(--bg);color:var(--txt);font-family:'Inter','Segoe UI',system-ui,sans-serif;min-height:100vh;font-size:14px;line-height:1.5 }}
+    ap.add_argument("-o", "--output",  required=True,  metavar="DIR",
+                    help="Output directory")
+    ap.add_argument("-t", "--threads", type=int, default=30, metavar="N",
+                    help="Concurrent worker threads (default: 30)")
+    ap.add_argument(
+        "--insecure",
+        action="store_true",
+        help=(
+            "Disable TLS/SSL certificate verification. "
+            "Useful for self-signed certs or internal targets. "
+            "Passed as: curl -k / wget --no-check-certificate / "
+            "httpx -no-verify-ssl / katana -insecure / hakrawler -insecure"
+        ),
+    )
+    ap.add_argument("--scan-all-js", action="store_true",
+                    help="Scan ALL JS files including known libraries")
+    ap.add_argument("--skip-live-check", action="store_true",
+                    help="Skip httpx — reuse existing live.txt")
+    ap.add_argument("--skip-url-collection", action="store_true",
+                    help="Skip URL harvest — reuse existing all_urls.txt")
+    ap.add_argument("--skip-download", action="store_true",
+                    help="Stop after JS extraction (no download or scanning)")
+    return ap.parse_args()
 
-/* ── Header ── */
-.header {{
-  background:var(--s1);
-  border-bottom:1px solid var(--bdr);
-  padding:52px 24px 36px;
-  text-align:center;
-}}
-.brand {{
-  font-size:42px;
-  font-weight:800;
-  letter-spacing:-2px;
-  color:#fff;
-  margin-bottom:6px;
-  line-height:1;
-}}
-.brand em {{ font-style:normal; color:#22c55e }}
-.tagline {{
-  color:var(--muted);
-  font-size:13px;
-  margin-bottom:24px;
-  letter-spacing:.5px;
-  text-transform:uppercase;
-}}
-.search-wrap {{
-  position:relative;
-  max-width:540px;
-  margin:0 auto 18px;
-}}
-.search-icon {{
-  position:absolute;
-  left:15px; top:50%;
-  transform:translateY(-50%);
-  color:var(--muted);
-  pointer-events:none;
-  width:16px; height:16px;
-}}
-#searchBox {{
-  width:100%;
-  background:var(--bg);
-  border:1px solid var(--bdr2);
-  border-radius:14px;
-  padding:13px 18px 13px 44px;
-  font-size:14px;
-  color:var(--txt);
-  outline:none;
-  font-family:inherit;
-  transition:border-color .2s, box-shadow .2s;
-}}
-#searchBox:focus {{
-  border-color:#525252;
-  box-shadow:0 0 0 3px rgba(255,255,255,.04);
-}}
-#searchBox::placeholder {{ color:var(--sm) }}
-.meta {{
-  color:var(--muted);
-  font-size:12px;
-  margin-top:4px;
-}}
-.meta b {{ color:#e4e4e7; font-weight:600 }}
 
-/* ── Wrap ── */
-.wrap {{ padding:24px 28px; max-width:2100px; margin:0 auto }}
+# ═══════════════════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════════════════
 
-/* ── Stat cards ── */
-.stats {{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:20px }}
-.stat-card {{
-  background:var(--s2);
-  border:1px solid var(--bdr);
-  border-left:3px solid #71717a;
-  border-radius:10px;
-  padding:14px 20px;
-  min-width:155px;
-  transition:border-color .2s;
-}}
-.stat-n {{ font-size:30px; font-weight:700; line-height:1 }}
-.stat-l {{ font-size:10px; color:var(--muted); margin-top:6px; text-transform:uppercase; letter-spacing:.6px }}
+def main() -> None:
+    global INSECURE
 
-/* ── Filter bar ── */
-.fbar {{ display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin-bottom:14px }}
-.fbtn {{
-  background:var(--s2);
-  border:1px solid var(--bdr);
-  border-radius:20px;
-  padding:6px 14px;
-  font-size:12px;
-  color:var(--muted);
-  cursor:pointer;
-  transition:all .15s;
-  font-family:inherit;
-  line-height:1.4;
-}}
-.fbtn:hover {{ color:var(--txt); border-color:#525252 }}
-.fbtn.active {{ background:var(--s3); color:var(--txt); border-color:#525252 }}
+    args = parse_args()
 
-/* ── Table ── */
-.tbl-wrap {{ overflow-x:auto; border-radius:12px; border:1px solid var(--bdr) }}
-table {{ width:100%; border-collapse:collapse; font-size:13px }}
-thead th {{
-  background:var(--s1);
-  padding:10px 12px;
-  text-align:left;
-  color:var(--sm);
-  font-weight:600;
-  font-size:10px;
-  text-transform:uppercase;
-  letter-spacing:.6px;
-  white-space:nowrap;
-  border-bottom:1px solid var(--bdr);
-}}
-tbody tr {{ border-bottom:1px solid #141414; transition:background .1s }}
-tbody tr:hover {{ background:var(--s2) }}
-tbody tr:last-child {{ border-bottom:none }}
-td {{ padding:9px 12px; vertical-align:middle }}
+    # ── Apply global insecure flag ─────────────────────────────────────────
+    INSECURE = args.insecure
 
-/* ── Chips ── */
-.chip {{ display:inline-flex; align-items:center; gap:6px; font-size:12px; white-space:nowrap }}
-.dot {{ width:7px; height:7px; border-radius:50%; flex-shrink:0 }}
-.http-code {{ font-size:16px; font-weight:700 }}
+    banner()
 
-/* ── Badges ── */
-.badge {{ display:inline-block; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:700; margin:1px }}
-.b-green {{ background:#14532d25; color:#86efac; border:1px solid #14532d55 }}
-.b-amber {{ background:#78350f25; color:#fcd34d; border:1px solid #78350f55 }}
-.b-teal  {{ background:#134e4a25; color:#5eead4; border:1px solid #134e4a55 }}
-.b-zinc  {{ background:#27272a;   color:#a1a1aa; border:1px solid #3f3f46   }}
-.b-purple{{ background:#3b076422; color:#e9d5ff; border:1px solid #581c8755 }}
+    # ── Resolve input: --domain or --subs ─────────────────────────────────
+    single_domain: bool = False
+    subs_file: Path
 
-/* ── Misc ── */
-.mono {{ font-family:'JetBrains Mono','Consolas','Fira Code',monospace; font-size:12px; color:#e4e4e7 }}
-.muted {{ color:var(--muted) }}
-.xs {{ font-size:11px }}
-.url-link {{ color:#9ca3af; text-decoration:none; font-size:11px }}
-.url-link:hover {{ color:var(--txt); text-decoration:underline }}
-.tech-cell {{ max-width:240px }}
-.tech-tag {{
-  display:inline-block;
-  padding:2px 7px;
-  border-radius:5px;
-  font-size:10px;
-  font-weight:600;
-  margin:2px 2px 2px 0;
-  white-space:nowrap;
-}}
-.shot-cell {{ width:112px; min-width:110px }}
+    if args.domain:
+        # Single-domain mode: create a temporary subs file with one entry
+        single_domain = True
+        domain_url = normalise_host(args.domain)
+        tmp_subs   = Path(args.output) / "_domain_input.txt"
+        tmp_subs.parent.mkdir(parents=True, exist_ok=True)
+        tmp_subs.write_text(domain_url + "\n")
+        subs_file = tmp_subs
+        print(info(f"Mode   : {BOLD}single-domain{RESET}  →  {domain_url}"))
+    else:
+        subs_file = Path(args.subs)
+        if not subs_file.exists():
+            print(err(f"File not found: {subs_file}"))
+            sys.exit(1)
 
-/* ── Thumbnails ── */
-.thumb {{
-  position:relative;
-  width:102px; height:64px;
-  border-radius:8px;
-  overflow:hidden;
-  cursor:pointer;
-  border:1px solid var(--bdr2);
-  transition:border-color .15s, transform .15s, box-shadow .15s;
-}}
-.thumb:hover {{ border-color:#525252; transform:scale(1.04); box-shadow:0 4px 16px rgba(0,0,0,.4) }}
-.thumb img {{ width:100%; height:100%; object-fit:cover; object-position:top center }}
-.t-ovl {{
-  position:absolute; inset:0;
-  background:rgba(0,0,0,.7);
-  display:flex; align-items:center; justify-content:center;
-  font-size:11px; color:#fff;
-  opacity:0; transition:opacity .15s;
-}}
-.thumb:hover .t-ovl {{ opacity:1 }}
+    subs = [l.strip() for l in subs_file.read_text().splitlines() if l.strip()]
+    if not subs:
+        print(err("Input is empty — no hosts to scan."))
+        sys.exit(1)
 
-/* ── Modal ── */
-.modal {{
-  display:none;
-  position:fixed; inset:0;
-  background:rgba(0,0,0,.9);
-  z-index:9999;
-  align-items:center; justify-content:center;
-  padding:20px;
-  backdrop-filter:blur(6px);
-}}
-.modal.open {{ display:flex }}
-.mbox {{
-  background:var(--s1);
-  border:1px solid var(--bdr2);
-  border-radius:14px;
-  max-width:980px; width:100%;
-  max-height:92vh; overflow-y:auto;
-}}
-.mhdr {{
-  display:flex; justify-content:space-between; align-items:center;
-  padding:14px 18px;
-  border-bottom:1px solid var(--bdr);
-}}
-.mhdr code {{ font-size:13px; color:#e4e4e7; font-family:monospace }}
-.mhdr button {{
-  background:none; border:none;
-  color:var(--muted); font-size:22px; cursor:pointer; line-height:1;
-  transition:color .15s;
-}}
-.mhdr button:hover {{ color:var(--txt) }}
+    print(info(f"{BOLD}{len(subs):,}{RESET} host(s) loaded"))
 
-.hidden {{ display:none !important }}
+    # ── Insecure notice ────────────────────────────────────────────────────
+    if INSECURE:
+        print(warn(
+            f"{YELLOW}--insecure{RESET} active — "
+            "TLS certificate errors will be ignored across all tools."
+        ))
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar {{ width:6px; height:6px }}
-::-webkit-scrollbar-track {{ background:var(--bg) }}
-::-webkit-scrollbar-thumb {{ background:var(--bdr2); border-radius:3px }}
-::-webkit-scrollbar-thumb:hover {{ background:#3f3f46 }}
-</style>
-</head>
-<body>
+    if not check_tools():
+        sys.exit(1)
 
-<div class="header">
-  <div class="brand">Am I <em>reachable?</em></div>
-  <div class="tagline">{L_scan_date}: {scan_dt} UTC</div>
-  <div class="search-wrap">
-    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-    </svg>
-    <input type="text" id="searchBox" placeholder="{L_search}" oninput="filterTable()" autocomplete="off" spellcheck="false">
-  </div>
-  <div class="meta">
-    <b>{len(results)}</b> {L_hosts}
-    &nbsp;&middot;&nbsp;
-    <b style="color:#22c55e">{open_count}</b> {L_open}
-    &nbsp;&middot;&nbsp;
-    <b style="color:#ef4444">{closed_count}</b> {L_closed}
-    &nbsp;&middot;&nbsp;
-    📸 <b>{shot_count}</b>
-    &nbsp;&middot;&nbsp;
-    ⏱ <b>{scan_dur}s</b>
-  </div>
-</div>
+    dirs = setup_dirs(Path(args.output))
+    log  = setup_logger(dirs["logs"])
+    log.info(
+        "START  input=%s  output=%s  threads=%d  insecure=%s  single_domain=%s",
+        subs_file, args.output, args.threads, INSECURE, single_domain,
+    )
+    print(info(f"Output root: {BOLD}{dirs['base']}{RESET}"))
 
-<div class="wrap">
-  <div class="stats">{stat_cards}</div>
+    stats: dict = {"single_domain": single_domain}
 
-  <div class="fbar">
-    <button class="fbtn active" onclick="setFilter('all',this)">{L_all} ({len(results)})</button>
-    <button class="fbtn" onclick="setFilter('OPEN',this)">✅ {L_f_open} ({open_count})</button>
-    <button class="fbtn" onclick="setFilter('TCP OPEN',this)">🟡 TCP ({cnt_tcp})</button>
-    <button class="fbtn" onclick="setFilter('DNS ONLY',this)">🟠 DNS ({cnt_dns})</button>
-    <button class="fbtn" onclick="setFilter('CLOSED',this)">❌ {L_f_closed} ({cnt_closed})</button>
-    <button class="fbtn" onclick="setFilter('NO_DNS',this)">⛔ {L_f_nodns} ({cnt_nodns})</button>
-    <button class="fbtn" id="shotsBtn" onclick="toggleShots(this)">📸 {L_f_shots} ({shot_count})</button>
-  </div>
+    # ── 1. Live hosts ──────────────────────────────────────────────────────
+    live_file = dirs["live"] / "live.txt"
+    if args.skip_live_check and live_file.exists():
+        live = [l.strip() for l in live_file.read_text().splitlines() if l.strip()]
+        print(clr(f"\n[1/5]  Skipped httpx  —  {len(live):,} hosts from live.txt", YELLOW))
+    elif single_domain:
+        # For a single known domain, skip httpx and use it directly
+        live = [normalise_host(args.domain)]
+        live_file.write_text("\n".join(live) + "\n")
+        print(clr(f"\n[1/5]  Single-domain mode — skipping httpx probe", YELLOW))
+        print(ok(f"Target: {BOLD}{live[0]}{RESET}"))
+    else:
+        live = run_httpx(subs_file, live_file, args.threads, log)
 
-  <div class="tbl-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>{L_col_stat}</th>
-          <th>{L_col_host}</th>
-          <th>{L_col_dom}</th>
-          <th>{L_col_ips}</th>
-          <th>{L_col_http}</th>
-          <th>{L_col_tcp}</th>
-          <th>{L_col_srv}</th>
-          <th>🔬 {L_col_tech}</th>
-          <th>{L_col_sec}</th>
-          <th>{L_col_url}</th>
-          <th>📸 {L_col_shot}</th>
-          <th>{L_col_time}</th>
-        </tr>
-      </thead>
-      <tbody id="tBody">
-{rows_html}
-      </tbody>
-    </table>
-  </div>
-</div>
+    stats["live"] = len(live)
+    if not live:
+        print(err("No live hosts found. Exiting."))
+        sys.exit(0)
 
-<script>
-let curFilter = 'all', shotsOnly = false;
+    # ── 2. URL collection ──────────────────────────────────────────────────
+    urls_file = dirs["urls"] / "all_urls.txt"
+    if args.skip_url_collection and urls_file.exists():
+        all_urls = [l.strip() for l in urls_file.read_text().splitlines() if l.strip()]
+        print(clr(f"\n[2/5]  Skipped collection  —  {len(all_urls):,} URLs loaded", YELLOW))
+    else:
+        all_urls = collect_urls(live, urls_file, args.threads, log)
 
-function filterTable() {{
-  const q = document.getElementById('searchBox').value.toLowerCase();
-  document.querySelectorAll('#tBody tr').forEach(row => {{
-    const text    = row.textContent.toLowerCase();
-    const status  = row.dataset.status || '';
-    const hasShot = !!row.querySelector('.thumb');
-    const ok = (!q || text.includes(q))
-            && (curFilter === 'all' || status.includes(curFilter))
-            && (!shotsOnly || hasShot);
-    row.classList.toggle('hidden', !ok);
-  }});
-}}
+    stats["urls"] = len(all_urls)
 
-function setFilter(s, btn) {{
-  curFilter = s; shotsOnly = false;
-  document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  filterTable();
-}}
+    # ── 3. JS extraction & filter ──────────────────────────────────────────
+    js_all, js_custom = extract_js_urls(all_urls, live, dirs["js"], args.threads, log)
+    stats["js_all"]    = len(js_all)
+    stats["js_custom"] = len(js_custom)
 
-function toggleShots(btn) {{
-  shotsOnly = !shotsOnly; curFilter = 'all';
-  document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('active'));
-  if (shotsOnly) btn.classList.add('active');
-  filterTable();
-}}
+    if args.skip_download:
+        print(clr("\n  [--skip-download] Stopping after JS extraction.", YELLOW))
+        print(info(f"All JS   →  {dirs['js'] / 'js_urls.txt'}"))
+        print(info(f"Custom   →  {dirs['js'] / 'custom_js.txt'}"))
+        sys.exit(0)
 
-function openModal(id) {{
-  document.getElementById(id).classList.add('open');
-  document.body.style.overflow = 'hidden';
-}}
+    # ── 4. Download ────────────────────────────────────────────────────────
+    targets = js_all if args.scan_all_js else js_custom
+    if not targets:
+        print(warn("No JS targets. Try --scan-all-js"))
+        sys.exit(0)
 
-document.addEventListener('keydown', e => {{
-  if (e.key === 'Escape') {{
-    document.querySelectorAll('.modal.open').forEach(m => {{
-      m.classList.remove('open');
-      document.body.style.overflow = '';
-    }});
-  }}
-}});
-</script>
-</body>
-</html>"""
+    dl_map = download_js(targets, dirs["dl"], args.threads, log)
+    stats["js_dl"] = len(dl_map)
 
-with open(html_path, "w", encoding="utf-8") as fh:
-    fh.write(html)
-print(f"[✓] HTML  → {html_path}")
+    if not dl_map:
+        print(warn("No JS files downloaded successfully."))
+        sys.exit(0)
 
-# ── README.txt ─────────────────────────────────────────────────────────────
-readme_path = os.path.join(OUTPUT_DIR, "README.txt")
-sep = "─" * 52
-with open(readme_path, "w", encoding="utf-8") as fh:
-    fh.write(f"""Am I reachable?  ·  Domain Scanner v3.0  ·  2026
-{sep}
-{L["scan_date"]:<20}: {scan_dt} UTC
-Input file          : {INPUT_JSON}
-Language            : {LANG}
-{sep}
-{"Status":<28}  {"Count":>5}
-{sep}
+    # ── 5. Secret scanning ─────────────────────────────────────────────────
+    run_secret_scanning(dl_map, dirs, stats, log)
+
+    # ── Summary ────────────────────────────────────────────────────────────
+    insecure_line = f"  {YELLOW}⚠  TLS verification was disabled (--insecure){RESET}\n" if INSECURE else ""
+    print(f"""
+{BOLD}{GREEN}  ╔══════════════════════════════════════╗
+  ║      Pipeline Complete  ✔           ║
+  ╚══════════════════════════════════════╝{RESET}
+{insecure_line}
+  {DIM}{"─"*38}{RESET}
+  Live hosts       : {stats["live"]:>8,}
+  URLs collected   : {stats["urls"]:>8,}
+  JS total         : {stats["js_all"]:>8,}
+  JS custom        : {stats["js_custom"]:>8,}
+  JS downloaded    : {stats["js_dl"]:>8,}
+  {DIM}{"─"*38}{RESET}
+  Output  →  {BOLD}{dirs["base"]}{RESET}
+  Report  →  {BOLD}{dirs["secrets"] / "final_report.txt"}{RESET}
 """)
-    for s, c in sorted(counts.items(), key=lambda x: STATUS_ORDER.get(x[0], 9)):
-        icon = {"OPEN":"✅","OPEN (Auth)":"🔒","OPEN (Error)":"⚠️",
-                "TCP OPEN":"🟡","DNS ONLY":"🟠","CLOSED":"❌","NO_DNS":"⛔"}.get(s, "❓")
-        fh.write(f"  {icon}  {s:<26} {c:>5}\n")
-    fh.write(f"""
-{L["total_scanned"]:<28}  {len(results):>5}
-{L["ext_open"]:<28}  {open_count:>5}
-{L["cl_nodns"]:<28}  {closed_count:>5}
-{L["shots_taken"]:<28}  {shot_count:>5}
-{L["scan_dur"]:<28}  {scan_dur}s
-{sep}
-{L["out_files"]}:
-  scan_results.html    ← Open in browser (interactive report)
-  scan_results.json    ← Machine-readable JSON
-  scan_results.csv     ← Spreadsheet compatible
-  screenshots/         ← {shot_count} PNG file(s)
-{sep}
-""")
-print(f"[✓] README→ {readme_path}")
+    log.info("DONE")
 
-# ── Print directory tree ───────────────────────────────────────────────────
-print(f"\n  📁 {OUTPUT_DIR}/")
-print(f"  ├── scan_results.html")
-print(f"  ├── scan_results.json")
-print(f"  ├── scan_results.csv")
-print(f"  ├── README.txt")
-shot_files = [f for f in os.listdir(SHOTS_DIR) if f.endswith(".png")]
-if shot_files:
-    print(f"  └── screenshots/  ({len(shot_files)} files)")
-    for i, sf in enumerate(sorted(shot_files)[:5]):
-        prefix = "    └──" if i == min(4, len(shot_files)-1) else "    ├──"
-        print(f"  {prefix} {sf}")
-    if len(shot_files) > 5:
-        print(f"       ... +{len(shot_files)-5} more")
-else:
-    print(f"  └── screenshots/  (empty)")
 
-# ── Terminal summary table ─────────────────────────────────────────────────
-print(f"\n{'═'*58}")
-icons_map = {
-    "OPEN":"✅", "OPEN (Auth)":"🔒", "OPEN (Error)":"⚠️",
-    "TCP OPEN":"🟡", "DNS ONLY":"🟠", "CLOSED":"❌", "NO_DNS":"⛔"
-}
-for s, c in sorted(counts.items(), key=lambda x: STATUS_ORDER.get(x[0], 9)):
-    icon = icons_map.get(s, "❓")
-    bar  = "█" * min(c, 30)
-    print(f"  {icon}  {s:<24} {c:>4}  {bar}")
-print(f"{'═'*58}")
-print(f"  {L['total_scanned']:<32}  {len(results)}")
-print(f"  {L['ext_open']:<32}  {open_count}")
-print(f"  {L['shots_taken']:<32}  {shot_count}")
-print(f"  {L['scan_dur']:<32}  {scan_dur}s")
-print(f"{'═'*58}\n")
-PYEOF
-
-# ── Execute Python scanner ─────────────────────────────────────────────────
-SKIP_WW=0;  [ -n "${SKIP_WHATWEB:-}"    ] && SKIP_WW=1
-SKIP_SS=0;  [ "${SKIP_SCREENSHOTS:-0}" = "1" ] && SKIP_SS=1
-
-python3 "$PYTHON_SCRIPT" \
-  "$INPUT_JSON" \
-  "$OUTPUT_DIR" \
-  "$TIMEOUT"    \
-  "$SKIP_WW"    \
-  "$SKIP_SS"    \
-  "${CHROME_BIN}" \
-  "$WORKERS"    \
-  "$LANG_CODE"
-
-# ── Final message ──────────────────────────────────────────────────────────
-echo ""
-echo -e "${GREEN}${BOLD}${MSG_DONE}${NC}"
-echo -e ""
-echo -e "${GRAY}${MSG_F1}${NC}"
-echo -e "${GRAY}${MSG_F2}${NC}"
-echo -e "${GRAY}${MSG_F3}${NC}"
-echo -e "${GRAY}${MSG_F4}${NC}"
-echo -e "${GRAY}${MSG_F5}${NC}"
-echo ""
+if __name__ == "__main__":
+    main()
