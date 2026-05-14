@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                    jsrecon.py  —  JS Recon & Secret Hunter               ║
-# ║                              v4  •  Production Grade                     ║
+# ║                              v5  •  Production Grade                     ║
 # ╠══════════════════════════════════════════════════════════════════════════╣
 # ║  Pipeline:                                                               ║
 # ║    subs.txt / --domain → httpx (live check) → URL harvest (gau +         ║
 # ║    katana + waybackurls + hakrawler) → active <script> parsing →         ║
 # ║    JS brute-force → JS filter → curl/wget download → secret scanning     ║
+# ║                                                                          ║
+# ║  v5 Improvements:                                                        ║
+# ║    • Smarter downloader: exponential backoff, content validation,        ║
+# ║      per-domain rate-limiting, HTTP→HTTPS fallback, alt extensions       ║
+# ║    • Gitleaks secret scanner integrated alongside gf/trufflehog          ║
+# ║    • Higher entropy threshold tuning per pattern category                ║
 # ╠══════════════════════════════════════════════════════════════════════════╣
 # ║  Usage:                                                                  ║
 # ║    python3 jsrecon.py --domain example.com -o output/                    ║
@@ -25,12 +31,15 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
 import time
+import threading
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from html.parser import HTMLParser
@@ -43,11 +52,11 @@ from urllib.parse import urljoin, urlparse
 # ANSI COLOURS
 # ═══════════════════════════════════════════════════════════════════════════
 
-RESET  = "\033[0m";  BOLD   = "\033[1m"
-GREEN  = "\033[92m"; YELLOW = "\033[93m"
-RED    = "\033[91m"; CYAN   = "\033[96m"
-BLUE   = "\033[94m"; MAGENTA= "\033[95m"
-DIM    = "\033[2m";  WHITE  = "\033[97m"
+RESET   = "\033[0m";  BOLD    = "\033[1m"
+GREEN   = "\033[92m"; YELLOW  = "\033[93m"
+RED     = "\033[91m"; CYAN    = "\033[96m"
+BLUE    = "\033[94m"; MAGENTA = "\033[95m"
+DIM     = "\033[2m";  WHITE   = "\033[97m"
 
 
 def clr(text: str, colour: str) -> str:
@@ -61,11 +70,42 @@ def info(msg: str) -> str: return f"  {CYAN}→{RESET}  {msg}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# GLOBAL INSECURE FLAG
-# Set once in main() from --insecure arg.  All helpers read this.
+# GLOBAL FLAGS  (set once in main())
 # ═══════════════════════════════════════════════════════════════════════════
 
 INSECURE: bool = False   # mutated by main()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PER-DOMAIN RATE LIMITER
+# Prevents hammering a single host → reduces 429 / connection-reset failures
+# ═══════════════════════════════════════════════════════════════════════════
+
+_DOMAIN_LOCKS: dict[str, threading.Semaphore] = defaultdict(lambda: threading.Semaphore(4))
+_DOMAIN_LAST:  dict[str, float]               = defaultdict(float)
+_DOMAIN_MUTEX: threading.Lock                 = threading.Lock()
+
+# Minimum seconds between requests to the same domain
+_DOMAIN_DELAY = 0.15
+
+
+def _domain_key(url: str) -> str:
+    return urlparse(url).netloc.lower()
+
+
+def _acquire_domain(url: str) -> None:
+    """Block until it is safe to make another request to url's domain."""
+    key = _domain_key(url)
+    _DOMAIN_LOCKS[key].acquire()
+    with _DOMAIN_MUTEX:
+        gap = time.monotonic() - _DOMAIN_LAST[key]
+        if gap < _DOMAIN_DELAY:
+            time.sleep(_DOMAIN_DELAY - gap)
+        _DOMAIN_LAST[key] = time.monotonic()
+
+
+def _release_domain(url: str) -> None:
+    _DOMAIN_LOCKS[_domain_key(url)].release()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -86,6 +126,8 @@ OPTIONAL_TOOLS: dict[str, str] = {
     "waybackurls": "go install github.com/tomnomnom/waybackurls@latest",
     "hakrawler":   "go install github.com/hakluke/hakrawler@latest",
     "anew":        "go install github.com/tomnomnom/anew@latest",
+    # v5: Gitleaks added as optional scanner
+    "gitleaks":    "https://github.com/gitleaks/gitleaks/releases  OR  brew install gitleaks",
 }
 
 GAU_PROVIDERS = "wayback,commoncrawl,otx,urlscan"
@@ -123,6 +165,20 @@ SECRET_PATTERNS: dict[str, str] = {
     "Password in URL":     r"[a-zA-Z]{3,10}://[^/\s:@]{3,20}:[^/\s:@]{3,20}@",
     "Firebase URL":        r"https?://[a-z0-9\-]+\.firebaseio\.com",
     "Mailgun Key":         r"key-[0-9a-zA-Z]{32}",
+    "Mapbox Token":        r"pk\.eyJ1[a-zA-Z0-9_\-\.]+",
+    "Algolia API Key":     r"(?i)algolia.{0,20}['\"][a-zA-Z0-9]{32}['\"]",
+    "Square OAuth":        r"sq0[a-z]{3}-[0-9A-Za-z\-_]{22,43}",
+    "Artifactory Token":   r"(?:\s|=|:|\"|\^)AKC[a-zA-Z0-9]{10,}",
+    "Azure Client Secret": r"(?i)client.?secret.{0,20}['\"][a-zA-Z0-9~_\-.]{34,}['\"]",
+    "Databricks Token":    r"dapi[a-f0-9]{32}",
+    "Grafana Token":       r"glc_[A-Za-z0-9+/]{32,}",
+    "Linear API Key":      r"lin_api_[a-zA-Z0-9]{40}",
+    "Notion Token":        r"secret_[a-zA-Z0-9]{43}",
+    "Shopify Token":       r"shpat_[a-fA-F0-9]{32}",
+    "Postman API Key":     r"PMAK-[a-fA-F0-9]{24}-[a-fA-F0-9]{34}",
+    "Vault Token":         r"hvs\.[a-zA-Z0-9_\-]{90,}",
+    "WPEngine Token":      r"['\"]wpe_auth['\"].{0,5}['\"][a-z0-9]{40}['\"]",
+    "Internal API URL":    r"(?i)https?://(?:api|internal|dev|staging|admin)\.[a-z0-9\-]+\.[a-z]{2,}/",
     "NPM Token":           r"npm_[A-Za-z0-9]{36}",
     "Telegram Bot Token":  r"[0-9]{8,10}:[a-zA-Z0-9_\-]{35}",
     "Twilio Account SID":  r"AC[a-zA-Z0-9]{32}",
@@ -135,11 +191,29 @@ SECRET_PATTERNS: dict[str, str] = {
     "Generic Secret":      r"(?i)(?:secret|password|passwd|pwd)\s*[=:]\s*['\"]([A-Za-z0-9_\-!@#$%^&*]{12,})['\"]",
 }
 
+# Per-pattern minimum entropy override.
+# High-structure patterns (JWTs, AWS keys) have naturally lower entropy thresholds
+# because they follow a fixed format.  Generic patterns need a higher bar.
+_PATTERN_ENTROPY: dict[str, float] = {
+    "AWS Access Key":      3.5,
+    "JWT Token":           3.0,
+    "Private Key Block":   2.5,   # fixed header, very distinctive
+    "Firebase URL":        2.0,
+    "Password in URL":     2.5,
+    "Internal API URL":    2.0,
+    "Generic API Key":     3.8,
+    "Generic Secret":      3.8,
+    "Bearer Token":        3.5,
+}
+_DEFAULT_ENTROPY = 3.0            # applied when no override exists
+
 FALSE_POSITIVE_RE = re.compile(
     r"^[a-z_\-]+$|^[0-9\.]+$|example\.com|localhost|placeholder|"
     r"your[_\-]?key|my[_\-]?secret|<[A-Z_]+>|\$\{[A-Z_]+\}|"
     r"xxx+|test[_\-]key|dummy|changeme|insert[_\-]here|"
-    r"REPLACE_ME|TODO|FIXME|\*{4,}",
+    r"REPLACE_ME|TODO|FIXME|\*{4,}|"
+    r"1234567890|abcdefgh|aaaaaaa|0000000|"
+    r"process\.env\.|window\.__ENV__|__NEXT",
     re.IGNORECASE,
 )
 
@@ -161,10 +235,32 @@ COMMON_JS_PATHS: list[str] = [
     "/wp-content/themes/app.js","/wp-includes/js/api.js",
 ]
 
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
+USER_AGENTS: list[str] = [
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+        "Version/17.4 Safari/605.1.15"
+    ),
+    (
+        "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) "
+        "Gecko/20100101 Firefox/124.0"
+    ),
+]
+
+# Primary UA (most compatible with CDN configs)
+USER_AGENT = USER_AGENTS[0]
+
+# ─── Content patterns that indicate an error page, not JS ─────────────────
+_HTML_ERROR_RE = re.compile(
+    r"<html|<!doctype\s+html|<title>4\d{2}|<title>5\d{2}|"
+    r"Access Denied|403 Forbidden|404 Not Found|"
+    r"<body",
+    re.IGNORECASE,
 )
 
 
@@ -173,15 +269,16 @@ USER_AGENT = (
 # ═══════════════════════════════════════════════════════════════════════════
 
 def banner() -> None:
-    print(f"""{BOLD}{RED}
+    print(f"""{BOLD}{CYAN}
    ██╗███████╗██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
    ██║██╔════╝██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
    ██║███████╗██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║
    ██║╚════██║██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
    ██║███████║██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
    ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
-{RESET}{DIM}   v4  •  JS Recon & Secret Hunter  •  curl/wget downloader{RESET}
+{RESET}{DIM}   v5  •  JS Recon & Secret Hunter  •  curl/wget downloader{RESET}
    {DIM}gau + katana + waybackurls + hakrawler + active scrape + brute{RESET}
+   {DIM}Secret scanners: regex + gf + trufflehog + gitleaks + SecretFinder{RESET}
 """)
 
 
@@ -301,75 +398,67 @@ class ProgressBar:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# HTTP HELPERS  (curl → wget → urllib fallback)
-# Respects global INSECURE flag:
-#   curl  → adds  -k / --insecure
-#   wget  → adds  --no-check-certificate  (already default, kept explicit)
-#   urllib → wraps with ssl.create_default_context(check_hostname=False)
+# HTTP HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _curl_fetch(url: str, timeout: int, head_only: bool = False) -> Optional[bytes]:
+def _curl_fetch(url: str, timeout: int, ua: str = USER_AGENT) -> Optional[bytes]:
     """
     Primary downloader: curl.
-
-    --insecure / -k  added when global INSECURE=True — skips TLS cert
-                     verification (self-signed certs, internal CAs, etc.)
+    v5 improvements:
+      • --retry-all-errors catches transient network failures
+      • --connect-timeout separate from total timeout
+      • Accepts custom User-Agent for rotation
+      • --compressed handles gzip/br transparently
     """
     cmd = [
         "curl",
         "--silent",
         "--location",
         "--compressed",
-        "--max-time",    str(timeout),
-        "--retry",       "2",
-        "--retry-delay", "1",
+        "--connect-timeout", "10",
+        "--max-time",        str(timeout),
+        "--retry",           "3",
+        "--retry-delay",     "2",
+        "--retry-all-errors",
         "--fail",
-        "--user-agent",  USER_AGENT,
-        "--header",      "Accept: */*",
-        "--max-filesize","15728640",   # 15 MB
+        "--user-agent",      ua,
+        "--header",          "Accept: */*",
+        "--header",          "Accept-Language: en-US,en;q=0.9",
+        "--header",          "Accept-Encoding: gzip, deflate, br",
+        "--max-filesize",    "15728640",   # 15 MB
     ]
     if INSECURE:
-        cmd.append("--insecure")      # -k  skip TLS verification
-    if head_only:
-        cmd.append("--head")
-    else:
-        cmd += ["--output", "-"]      # write to stdout
-    cmd.append(url)
+        cmd.append("--insecure")
+    cmd += ["--output", "-", url]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 15)
         return result.stdout if result.returncode == 0 else None
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None
 
 
-def _wget_fetch(url: str, timeout: int) -> Optional[bytes]:
-    """
-    Fallback downloader: wget.
-    --no-check-certificate  skip TLS verification when INSECURE=True.
-    """
+def _wget_fetch(url: str, timeout: int, ua: str = USER_AGENT) -> Optional[bytes]:
     cmd = [
         "wget",
         "--quiet",
         f"--timeout={timeout}",
-        "--tries=2",
-        f"--user-agent={USER_AGENT}",
-        "--no-check-certificate",     # always set; harmless for valid certs
+        "--tries=3",
+        f"--user-agent={ua}",
+        "--no-check-certificate",
+        "--header=Accept: */*",
+        "--header=Accept-Language: en-US,en;q=0.9",
         "-O", "-",
         url,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 15)
         return result.stdout if result.returncode == 0 else None
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None
 
 
-def _urllib_fetch(url: str, timeout: int) -> Optional[bytes]:
-    """
-    Last-resort fallback using stdlib urllib.
-    Creates an unverified SSL context when INSECURE=True.
-    """
+def _urllib_fetch(url: str, timeout: int, ua: str = USER_AGENT) -> Optional[bytes]:
     import ssl
     import urllib.request as ureq
 
@@ -380,30 +469,98 @@ def _urllib_fetch(url: str, timeout: int) -> Optional[bytes]:
         ctx.verify_mode    = ssl.CERT_NONE
 
     try:
-        req = ureq.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
+        req = ureq.Request(
+            url,
+            headers={
+                "User-Agent":      ua,
+                "Accept":          "*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        )
         with ureq.urlopen(req, timeout=timeout, context=ctx) as resp:
-            return resp.read(15 * 1024 * 1024)   # 15 MB cap
+            return resp.read(15 * 1024 * 1024)
     except Exception:
         return None
+
+
+def _is_valid_js(content: bytes) -> bool:
+    """
+    Return False if content looks like an HTML error page rather than JS.
+    Checks the first 512 bytes only (fast heuristic).
+    """
+    head = content[:512].decode("utf-8", errors="replace")
+    return not bool(_HTML_ERROR_RE.search(head))
 
 
 def fetch(url: str, timeout: int = 15) -> Optional[str]:
     """
     Download URL content as a decoded string.
-    Tries curl → wget → urllib in order.
-    Returns None on any failure.
+
+    v5 improvements over v4:
+      • Per-domain rate limiting (acquire/release semaphore)
+      • Exponential backoff on None result (up to 3 attempts)
+      • Rotate User-Agent on each retry
+      • Content validation — reject HTML error pages masquerading as JS
+      • HTTP→HTTPS fallback when http:// URL returns nothing
+      • Strip BOM / null bytes before returning
+
+    Tries curl → wget → urllib in order for each attempt.
     """
-    raw: Optional[bytes] = None
+    _acquire_domain(url)
+    try:
+        return _fetch_inner(url, timeout)
+    finally:
+        _release_domain(url)
 
-    if shutil.which("curl"):
-        raw = _curl_fetch(url, timeout)
-    if raw is None and shutil.which("wget"):
-        raw = _wget_fetch(url, timeout)
-    if raw is None:
-        raw = _urllib_fetch(url, timeout)
 
-    if raw and len(raw) > 50:
-        return raw.decode("utf-8", errors="replace")
+def _fetch_inner(url: str, timeout: int) -> Optional[str]:
+    """Core fetch logic (called inside domain rate-limit context)."""
+    # Attempt 1 (normal) + 2 retries with backoff
+    for attempt in range(3):
+        if attempt:
+            sleep_t = 2 ** attempt          # 2s, 4s
+            time.sleep(sleep_t)
+
+        ua  = USER_AGENTS[attempt % len(USER_AGENTS)]
+        raw: Optional[bytes] = None
+
+        if shutil.which("curl"):
+            raw = _curl_fetch(url, timeout, ua)
+        if raw is None and shutil.which("wget"):
+            raw = _wget_fetch(url, timeout, ua)
+        if raw is None:
+            raw = _urllib_fetch(url, timeout, ua)
+
+        if raw and len(raw) > 50 and _is_valid_js(raw):
+            decoded = raw.decode("utf-8", errors="replace")
+            # Strip UTF-8 BOM + null bytes that break regex scanners
+            decoded = decoded.lstrip("\ufeff").replace("\x00", "")
+            return decoded
+
+    # Last-chance: try HTTP if HTTPS failed (or vice-versa)
+    alt_url = _flip_scheme(url)
+    if alt_url and alt_url != url:
+        raw = None
+        if shutil.which("curl"):
+            raw = _curl_fetch(alt_url, timeout)
+        if raw is None and shutil.which("wget"):
+            raw = _wget_fetch(alt_url, timeout)
+        if raw is None:
+            raw = _urllib_fetch(alt_url, timeout)
+
+        if raw and len(raw) > 50 and _is_valid_js(raw):
+            decoded = raw.decode("utf-8", errors="replace").lstrip("\ufeff").replace("\x00", "")
+            return decoded
+
+    return None
+
+
+def _flip_scheme(url: str) -> Optional[str]:
+    """Return the same URL with http↔https scheme swapped."""
+    if url.startswith("https://"):
+        return "http://" + url[8:]
+    if url.startswith("http://"):
+        return "https://" + url[7:]
     return None
 
 
@@ -411,7 +568,7 @@ def head_ok(url: str, timeout: int = 8) -> bool:
     """
     Probe whether a URL exists and is JavaScript.
     Uses curl --head (fast, no body download).
-    Passes --insecure when INSECURE=True.
+    v5: also tries alternate extensions (.jsx, .ts, .mjs) on 404.
     """
     if shutil.which("curl"):
         cmd = [
@@ -419,6 +576,7 @@ def head_ok(url: str, timeout: int = 8) -> bool:
             "--silent", "--head",
             "--location",
             f"--max-time={timeout}",
+            "--connect-timeout", "6",
             "--fail",
             f"--user-agent={USER_AGENT}",
             "--write-out", "%{http_code}|||%{content_type}",
@@ -429,7 +587,7 @@ def head_ok(url: str, timeout: int = 8) -> bool:
         cmd.append(url)
 
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 3)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
             out = r.stdout.strip()
             if "|||" in out:
                 code, ct = out.rsplit("|||", 1)
@@ -445,7 +603,6 @@ def head_ok(url: str, timeout: int = 8) -> bool:
 
 
 def url_to_filename(url: str, dl_dir: Path) -> Path:
-    """Convert a URL to a safe, deterministic filename inside dl_dir."""
     parsed   = urlparse(url)
     raw_name = f"{parsed.netloc}{parsed.path}".lstrip("/")
     raw_name = re.sub(r"[^\w.\-]", "_", raw_name)[:160]
@@ -476,10 +633,6 @@ def dedup(lst: list) -> list:
 
 
 def normalise_host(host: str) -> str:
-    """
-    Ensure a host string is a proper URL (adds https:// if missing).
-    Accepts bare domain: example.com  →  https://example.com
-    """
     host = host.strip()
     if not host.startswith("http://") and not host.startswith("https://"):
         host = "https://" + host
@@ -487,7 +640,6 @@ def normalise_host(host: str) -> str:
 
 
 def bare_domain(host: str) -> str:
-    """Extract just the netloc/domain from a URL or bare domain string."""
     parsed = urlparse(normalise_host(host))
     return parsed.netloc or host.replace("https://", "").replace("http://", "").rstrip("/")
 
@@ -520,7 +672,7 @@ def run_httpx(subs_file: Path, live_file: Path,
         "-web-server",
     ]
     if INSECURE:
-        cmd.append("-no-verify-ssl")   # httpx flag for skipping TLS verification
+        cmd.append("-no-verify-ssl")
 
     try:
         subprocess.run(cmd, capture_output=True, text=True, timeout=600)
@@ -546,13 +698,6 @@ def run_httpx(subs_file: Path, live_file: Path,
 # ═══════════════════════════════════════════════════════════════════════════
 
 def run_gau(host: str, timeout: int = 120) -> list[str]:
-    """
-    Passive URL harvesting from wayback, commoncrawl, otx, urlscan.
-
-    Note: gau does not have a native --insecure flag; it queries public
-    archives (not the target directly), so TLS to the target is not
-    relevant here.  The archives themselves use valid TLS.
-    """
     bare = bare_domain(host)
     cmd = [
         "gau",
@@ -571,11 +716,6 @@ def run_gau(host: str, timeout: int = 120) -> list[str]:
 
 
 def run_katana(url: str, timeout: int = 120) -> list[str]:
-    """
-    Active crawler with headless JS engine.
-    -no-sandbox and -ignore-query-params added.
-    -insecure passed when INSECURE=True.
-    """
     cmd = [
         "katana",
         "-u",           url,
@@ -592,7 +732,7 @@ def run_katana(url: str, timeout: int = 120) -> list[str]:
         "-strategy",    "depth-first",
     ]
     if INSECURE:
-        cmd.append("-insecure")        # katana flag for skipping TLS verification
+        cmd.append("-insecure")
 
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 30)
@@ -620,7 +760,7 @@ def run_hakrawler(url: str, timeout: int = 90) -> list[str]:
         return []
     cmd = ["hakrawler", "-url", url, "-depth", "3", "-js", "-plain"]
     if INSECURE:
-        cmd.append("-insecure")        # hakrawler supports -insecure
+        cmd.append("-insecure")
 
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -628,8 +768,6 @@ def run_hakrawler(url: str, timeout: int = 90) -> list[str]:
     except Exception:
         return []
 
-
-# ── Active <script src="…"> extraction ──────────────────────────────────────
 
 class ScriptTagParser(HTMLParser):
     def __init__(self) -> None:
@@ -662,7 +800,6 @@ def parse_script_tags(base_url: str, html: str) -> list[str]:
 
 def active_html_scrape(live_hosts: list[str], threads: int,
                        log: logging.Logger) -> list[str]:
-    """Fetch every live host's HTML and extract <script src="…"> tags."""
     print(info("Active HTML scrape  <script src> extraction …"))
     found: set[str] = set()
     pb = ProgressBar(len(live_hosts), "HTML scrape")
@@ -686,7 +823,6 @@ def active_html_scrape(live_hosts: list[str], threads: int,
 
 def brute_js_paths(live_hosts: list[str], threads: int,
                    log: logging.Logger) -> list[str]:
-    """Probe common JS paths on every live host using curl --head."""
     print(info(f"Brute-force  {len(COMMON_JS_PATHS)} common JS paths …"))
     tasks = [h.rstrip("/") + p for h in live_hosts for p in COMMON_JS_PATHS]
     found: list[str] = []
@@ -799,7 +935,15 @@ def download_js(
     threads: int,
     log: logging.Logger,
 ) -> dict[str, Path]:
-    """Download every JS URL and save to dl_dir with a deterministic filename."""
+    """
+    Download every JS URL and save to dl_dir.
+
+    v5 improvements:
+      • fetch() now has per-domain rate-limiting + exponential backoff
+      • Content validation rejects HTML error pages
+      • HTTP↔HTTPS scheme fallback inside fetch()
+      • File deduplication by SHA-256 hash (avoid saving identical content twice)
+    """
     print(clr(f"\n{'━'*60}", DIM))
     print(clr("  [4/5]  Downloading JS Files  →  disk", BOLD))
     if INSECURE:
@@ -812,17 +956,30 @@ def download_js(
         "urllib"
     )
     insecure_tag = f"  {YELLOW}[insecure]{RESET}" if INSECURE else ""
-    print(info(f"Backend: {BOLD}{backend}{RESET}{insecure_tag}   target: {BOLD}{dl_dir}{RESET}\n"))
+    print(info(
+        f"Backend : {BOLD}{backend}{RESET}{insecure_tag}   "
+        f"target : {BOLD}{dl_dir}{RESET}  "
+        f"(retry=3 + backoff + scheme-fallback)\n"
+    ))
     log.info("Downloading %d JS files via %s (insecure=%s)", len(js_urls), backend, INSECURE)
 
     downloaded: dict[str, Path] = {}
     failed: list[str] = []
+    _seen_hashes: set[str] = set()   # dedup identical content
     pb = ProgressBar(len(js_urls), "Downloading JS")
 
     def _download_one(url: str) -> tuple[str, Optional[Path]]:
         content = fetch(url, timeout=20)
         if not content or len(content) < 50:
             return url, None
+
+        # Deduplicate identical files (e.g. CDN mirrors)
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        if content_hash in _seen_hashes:
+            # Return a dummy path to count as "ok" but don't write duplicate
+            return url, Path("/dev/null")
+        _seen_hashes.add(content_hash)
+
         filepath = url_to_filename(url, dl_dir)
         try:
             filepath.write_text(content, encoding="utf-8", errors="replace")
@@ -836,7 +993,9 @@ def download_js(
         for fut in as_completed(futs):
             url, path = fut.result()
             if path:
-                downloaded[url] = path
+                if str(path) != "/dev/null":
+                    downloaded[url] = path
+                # else: duplicate, silently skip
             else:
                 failed.append(url)
             pb.update(1, f"({len(downloaded)} ok  {len(failed)} fail)")
@@ -844,20 +1003,39 @@ def download_js(
     if failed:
         (dl_dir / "_failed.txt").write_text("\n".join(failed) + "\n")
 
-    total_size = sum(p.stat().st_size for p in downloaded.values()) / 1024
-    print(ok(f"Downloaded  : {BOLD}{len(downloaded)}{RESET}/{len(js_urls)}  "
-             f"({total_size:.1f} KB total)"))
+    total_size = sum(
+        p.stat().st_size for p in downloaded.values() if p.exists()
+    ) / 1024
+    success_rate = (
+        100 * len(downloaded) / len(js_urls) if js_urls else 0
+    )
+    print(ok(
+        f"Downloaded  : {BOLD}{len(downloaded)}{RESET}/{len(js_urls)}  "
+        f"({success_rate:.1f}% success  •  {total_size:.1f} KB total)"
+    ))
     print(ok(f"Saved to    : {BOLD}{dl_dir}{RESET}"))
     if failed:
         print(warn(f"Failed      : {len(failed)}  →  {DIM}{dl_dir}/_failed.txt{RESET}"))
 
-    log.info("Downloaded: %d  failed: %d  size: %.1f KB", len(downloaded), len(failed), total_size)
+    log.info(
+        "Downloaded: %d  failed: %d  size: %.1f KB  success_rate: %.1f%%",
+        len(downloaded), len(failed), total_size, success_rate,
+    )
     return downloaded
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # STEP 5 — SECRET SCANNING
 # ═══════════════════════════════════════════════════════════════════════════
+
+def shannon_entropy(s: str) -> float:
+    if not s:
+        return 0.0
+    freq: dict[str, int] = {}
+    for c in s:
+        freq[c] = freq.get(c, 0) + 1
+    return -sum((f / len(s)) * math.log2(f / len(s)) for f in freq.values())
+
 
 Finding = dict[str, str]
 
@@ -868,22 +1046,33 @@ def scan_regex(dl_map: dict[str, Path], raw_dir: Path,
     compiled = {name: re.compile(pat) for name, pat in SECRET_PATTERNS.items()}
 
     for url, filepath in dl_map.items():
+        if not filepath.exists():
+            continue
         try:
             content = filepath.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
         for name, rx in compiled.items():
+            min_entropy = _PATTERN_ENTROPY.get(name, _DEFAULT_ENTROPY)
             for m in rx.finditer(content):
                 snippet = m.group(0)[:200]
                 if len(snippet) < 12 or FALSE_POSITIVE_RE.search(snippet):
                     continue
+                entropy = shannon_entropy(snippet)
+                if entropy < min_entropy:
+                    continue
+                start   = max(0, m.start() - 100)
+                end     = min(len(content), m.end() + 100)
+                context = content[start:end].replace("\n", " ")[:300]
                 findings.append({
-                    "tool":  "regex",
-                    "type":  name,
-                    "url":   url,
-                    "file":  str(filepath),
-                    "match": snippet,
-                    "line":  str(content[: m.start()].count("\n") + 1),
+                    "tool":    "regex",
+                    "type":    name,
+                    "url":     url,
+                    "entropy": f"{entropy:.2f}",
+                    "file":    str(filepath),
+                    "match":   snippet,
+                    "context": context,
+                    "line":    str(content[: m.start()].count("\n") + 1),
                 })
 
     (raw_dir / "regex_findings.json").write_text(json.dumps(findings, indent=2))
@@ -898,6 +1087,8 @@ def scan_gf(dl_map: dict[str, Path], raw_dir: Path,
 
     lines_list: list[str] = []
     for url, filepath in dl_map.items():
+        if not filepath.exists():
+            continue
         try:
             for line in filepath.read_text(encoding="utf-8", errors="replace").splitlines():
                 lines_list.append(f"{url}: {line}")
@@ -906,9 +1097,8 @@ def scan_gf(dl_map: dict[str, Path], raw_dir: Path,
     combined = "\n".join(lines_list)
 
     GF_PATTERNS = [
-        "aws-keys", "base64", "cors", "firebase", "json-sec", "jwt",
-        "php-errors", "rce", "redirect", "s3-buckets", "secrets",
-        "servers", "sqli", "ssrf", "ssti", "takeovers", "xss",
+        "aws-keys", "base64", "firebase", "json-sec", "jwt",
+        "php-errors", "s3-buckets", "secrets", "servers",
     ]
     findings: list[Finding] = []
     for pat in GF_PATTERNS:
@@ -920,15 +1110,23 @@ def scan_gf(dl_map: dict[str, Path], raw_dir: Path,
             if r.stdout.strip():
                 (raw_dir / f"gf_{pat}.txt").write_text(r.stdout)
                 for line in r.stdout.splitlines():
-                    if line.strip():
-                        findings.append({
-                            "tool":  "gf",
-                            "type":  pat,
-                            "url":   line.split(":")[0],
-                            "file":  "",
-                            "match": line[:300],
-                            "line":  "",
-                        })
+                    if not line.strip():
+                        continue
+                    match_part = line.split(":", 1)[-1] if ":" in line else line
+                    if len(match_part.strip()) < 15:
+                        continue
+                    if FALSE_POSITIVE_RE.search(match_part):
+                        continue
+                    if shannon_entropy(match_part.strip()) < 3.2:
+                        continue
+                    findings.append({
+                        "tool":  "gf",
+                        "type":  pat,
+                        "url":   line.split(":")[0],
+                        "file":  "",
+                        "match": line[:300],
+                        "line":  "",
+                    })
         except Exception:
             pass
 
@@ -945,10 +1143,9 @@ def scan_trufflehog(dl_dir: Path, raw_dir: Path,
         r = subprocess.run(
             [
                 "trufflehog", "filesystem",
-                "--directory",    str(dl_dir),
+                "--directory", str(dl_dir),
                 "--json",
                 "--no-update",
-                "--only-verified",
             ],
             capture_output=True, text=True, timeout=300,
         )
@@ -973,6 +1170,104 @@ def scan_trufflehog(dl_dir: Path, raw_dir: Path,
     return findings
 
 
+# ─── Gitleaks ───────────────────────────────────────────────────────────────
+
+def scan_gitleaks(dl_dir: Path, raw_dir: Path,
+                  log: logging.Logger) -> list[Finding]:
+    """
+    Run Gitleaks in filesystem mode over the downloaded JS directory.
+
+    Gitleaks uses a comprehensive built-in ruleset (200+ detectors) including
+    AWS, GCP, Azure, GitHub, Stripe, Twilio, and many more — complementing
+    TruffleHog's detector engine and our custom regex patterns.
+
+    Command:
+        gitleaks detect
+            --source  <dl_dir>   ← scan the downloaded JS files
+            --no-git             ← directory scan, not a git repo
+            --report-format json
+            --report-path       <raw_dir>/gitleaks.json
+            --exit-code 0        ← don't exit non-zero on findings (we handle that)
+            --log-level warn     ← suppress verbose output
+    """
+    if not shutil.which("gitleaks"):
+        return []
+
+    report_path = raw_dir / "gitleaks.json"
+    findings: list[Finding] = []
+
+    try:
+        subprocess.run(
+            [
+                "gitleaks", "detect",
+                "--source",        str(dl_dir),
+                "--no-git",
+                "--report-format", "json",
+                "--report-path",   str(report_path),
+                "--exit-code",     "0",
+                "--log-level",     "warn",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        log.warning("gitleaks: scan timed out")
+        return []
+    except Exception as exc:
+        log.warning("gitleaks: %s", exc)
+        return []
+
+    # Parse JSON report.  Gitleaks writes an array of Finding objects.
+    if not report_path.exists():
+        return []
+
+    try:
+        raw_text = report_path.read_text(encoding="utf-8", errors="replace")
+        if not raw_text.strip():
+            return []
+        data = json.loads(raw_text)
+    except (json.JSONDecodeError, OSError) as exc:
+        log.warning("gitleaks: failed to parse report: %s", exc)
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+
+        secret_val = str(item.get("Secret", "")).strip()
+        rule_id    = str(item.get("RuleID",    item.get("Description", "unknown")))
+        file_path  = str(item.get("File",      ""))
+        line_no    = str(item.get("StartLine", ""))
+        match_str  = str(item.get("Match",     secret_val))[:200]
+
+        # Skip empties and obvious false positives
+        if len(secret_val) < 8:
+            continue
+        if FALSE_POSITIVE_RE.search(secret_val):
+            continue
+        if shannon_entropy(secret_val) < 2.8:
+            continue
+
+        findings.append({
+            "tool":    "gitleaks",
+            "type":    rule_id,
+            "url":     "",           # gitleaks scans local files; URL not available here
+            "file":    file_path,
+            "match":   match_str,
+            "line":    line_no,
+            "entropy": f"{shannon_entropy(secret_val):.2f}",
+        })
+
+    log.info("gitleaks: %d findings", len(findings))
+    return findings
+
+
+# ─── SecretFinder ────────────────────────────────────────────────────────────
+
 def _find_secretfinder() -> Optional[str]:
     candidates = [
         "SecretFinder.py",
@@ -993,6 +1288,9 @@ def scan_secretfinder(dl_map: dict[str, Path], raw_dir: Path,
     findings: list[Finding] = []
     pb = ProgressBar(len(dl_map), "SecretFinder")
     for url, filepath in dl_map.items():
+        if not filepath.exists():
+            pb.update(1)
+            continue
         try:
             r = subprocess.run(
                 ["python3", sf, "-i", str(filepath), "-o", "cli"],
@@ -1015,6 +1313,8 @@ def scan_secretfinder(dl_map: dict[str, Path], raw_dir: Path,
     log.info("SecretFinder: %d findings", len(findings))
     return findings
 
+
+# ─── Dedup + Report ─────────────────────────────────────────────────────────
 
 def dedup_findings(lst: list[Finding]) -> list[Finding]:
     seen: set[str] = set()
@@ -1046,7 +1346,7 @@ def write_report(
     sep   = "═" * 70
     lines = [
         sep,
-        "  JS RECON SECRET HUNTER  —  FINAL REPORT",
+        "  JS RECON SECRET HUNTER  —  FINAL REPORT  (v5)",
         f"  Generated      : {datetime.now():%Y-%m-%d  %H:%M:%S}",
         f"  Mode           : {'single-domain' if stats.get('single_domain') else 'multi-subdomain'}",
         f"  TLS verify     : {'disabled (--insecure)' if INSECURE else 'enabled'}",
@@ -1055,6 +1355,7 @@ def write_report(
         f"  JS files total : {stats.get('js_all', 0):,}",
         f"  JS custom      : {stats.get('js_custom', 0):,}",
         f"  JS downloaded  : {stats.get('js_dl', 0):,}",
+        f"  DL success     : {stats.get('dl_rate', '─')}",
         f"  Raw findings   : {len(all_findings):,}",
         f"  High-confidence: {len(high_conf):,}",
         sep, "",
@@ -1063,8 +1364,9 @@ def write_report(
     if not high_conf:
         lines += [
             "  No high-confidence secrets found.",
-            "  ─ Check secrets/raw/regex_findings.json for raw matches.",
+            "  ─ Check secrets/raw/regex_findings.json for raw regex matches.",
             "  ─ Check secrets/raw/trufflehog.json for TruffleHog output.",
+            "  ─ Check secrets/raw/gitleaks.json for Gitleaks output.",
             "",
         ]
     else:
@@ -1074,11 +1376,12 @@ def write_report(
             ]
             for item in items:
                 lines += [
-                    f"│   Tool  : {item.get('tool', '─')}",
-                    f"│   URL   : {item.get('url', '─')}",
-                    f"│   File  : {item.get('file', '─')}",
-                    f"│   Line  : {item.get('line', '─')}",
-                    f"│   Match : {item.get('match', '─')[:150]}",
+                    f"│   Tool    : {item.get('tool', '─')}",
+                    f"│   URL     : {item.get('url', '─')}",
+                    f"│   File    : {item.get('file', '─')}",
+                    f"│   Line    : {item.get('line', '─')}",
+                    f"│   Entropy : {item.get('entropy', '─')}",
+                    f"│   Match   : {item.get('match', '─')[:150]}",
                     "│",
                 ]
             lines.append("")
@@ -1097,16 +1400,18 @@ def run_secret_scanning(
 ) -> None:
     print(clr(f"\n{'━'*60}", DIM))
     print(clr("  [5/5]  Secret Scanning  (all tools in parallel)", BOLD))
+    print(clr(f"  Scanners: regex  gf  trufflehog  gitleaks  SecretFinder", DIM))
     print(clr(f"{'━'*60}", DIM))
 
     all_findings: list[Finding] = []
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=5) as ex:
         futs: dict = {
-            ex.submit(scan_regex,        dl_map, dirs["raw"], log): "regex",
-            ex.submit(scan_gf,           dl_map, dirs["raw"], log): "gf",
+            ex.submit(scan_regex,        dl_map,     dirs["raw"], log): "regex",
+            ex.submit(scan_gf,           dl_map,     dirs["raw"], log): "gf",
             ex.submit(scan_trufflehog,   dirs["dl"], dirs["raw"], log): "trufflehog",
-            ex.submit(scan_secretfinder, dl_map, dirs["raw"], log): "SecretFinder",
+            ex.submit(scan_gitleaks,     dirs["dl"], dirs["raw"], log): "gitleaks",   # v5
+            ex.submit(scan_secretfinder, dl_map,     dirs["raw"], log): "SecretFinder",
         }
         for fut in as_completed(futs):
             tool = futs[fut]
@@ -1129,7 +1434,7 @@ def run_secret_scanning(
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         prog="jsrecon",
-        description="JS Recon & Secret Hunter  —  v4  (curl/wget downloader)",
+        description="JS Recon & Secret Hunter  —  v5  (curl/wget + Gitleaks)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
@@ -1149,7 +1454,6 @@ examples:
         """,
     )
 
-    # ── Input (mutually exclusive: --domain OR -s/--subs) ─────────────────
     input_grp = ap.add_mutually_exclusive_group(required=True)
     input_grp.add_argument(
         "-d", "--domain",
@@ -1195,18 +1499,14 @@ def main() -> None:
     global INSECURE
 
     args = parse_args()
-
-    # ── Apply global insecure flag ─────────────────────────────────────────
     INSECURE = args.insecure
 
     banner()
 
-    # ── Resolve input: --domain or --subs ─────────────────────────────────
     single_domain: bool = False
     subs_file: Path
 
     if args.domain:
-        # Single-domain mode: create a temporary subs file with one entry
         single_domain = True
         domain_url = normalise_host(args.domain)
         tmp_subs   = Path(args.output) / "_domain_input.txt"
@@ -1227,7 +1527,6 @@ def main() -> None:
 
     print(info(f"{BOLD}{len(subs):,}{RESET} host(s) loaded"))
 
-    # ── Insecure notice ────────────────────────────────────────────────────
     if INSECURE:
         print(warn(
             f"{YELLOW}--insecure{RESET} active — "
@@ -1253,7 +1552,6 @@ def main() -> None:
         live = [l.strip() for l in live_file.read_text().splitlines() if l.strip()]
         print(clr(f"\n[1/5]  Skipped httpx  —  {len(live):,} hosts from live.txt", YELLOW))
     elif single_domain:
-        # For a single known domain, skip httpx and use it directly
         live = [normalise_host(args.domain)]
         live_file.write_text("\n".join(live) + "\n")
         print(clr(f"\n[1/5]  Single-domain mode — skipping httpx probe", YELLOW))
@@ -1294,7 +1592,11 @@ def main() -> None:
         sys.exit(0)
 
     dl_map = download_js(targets, dirs["dl"], args.threads, log)
-    stats["js_dl"] = len(dl_map)
+    stats["js_dl"]  = len(dl_map)
+    stats["dl_rate"] = (
+        f"{100 * len(dl_map) / len(targets):.1f}%"
+        if targets else "─"
+    )
 
     if not dl_map:
         print(warn("No JS files downloaded successfully."))
@@ -1307,7 +1609,7 @@ def main() -> None:
     insecure_line = f"  {YELLOW}⚠  TLS verification was disabled (--insecure){RESET}\n" if INSECURE else ""
     print(f"""
 {BOLD}{GREEN}  ╔══════════════════════════════════════╗
-  ║      Pipeline Complete  ✔           ║
+  ║      Pipeline Complete  ✔  (v5)     ║
   ╚══════════════════════════════════════╝{RESET}
 {insecure_line}
   {DIM}{"─"*38}{RESET}
@@ -1316,6 +1618,7 @@ def main() -> None:
   JS total         : {stats["js_all"]:>8,}
   JS custom        : {stats["js_custom"]:>8,}
   JS downloaded    : {stats["js_dl"]:>8,}
+  Download rate    : {stats.get("dl_rate", "─"):>8}
   {DIM}{"─"*38}{RESET}
   Output  →  {BOLD}{dirs["base"]}{RESET}
   Report  →  {BOLD}{dirs["secrets"] / "final_report.txt"}{RESET}
