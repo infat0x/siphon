@@ -1,166 +1,145 @@
-# **JavaScript Reconnaissance & Secret Hunter**
+# JS Recon & Secret Hunter — v5
 
----
+Multi-stage JavaScript reconnaissance and secret scanning tool.
 
-## **Description**
-**JS Recon Tool** is a multi-purpose utility designed to discover, download, and analyze JavaScript files to uncover sensitive data (AWS keys, API tokens, personal information, etc.).
+## Pipeline
 
-- **Passive & Active URL Collection** (GAU, Katana, Waybackurls, Hakrawler)
-- **JavaScript Brute-Force** (Common JS paths)
-- **Active HTML Parsing** (Extracting `<script src="...">` tags)
-- **Secret Scanning** (Regex, GF, TruffleHog, SecretFinder)
-- **Parallel Processing** (ThreadPoolExecutor for fast scanning)
-- **TLS Bypass Support** (`--insecure` flag to accept self-signed certificates)
+```
+subs.txt / --domain
+    → httpx (live check)
+    → URL harvest (gau + katana + waybackurls + hakrawler)
+    → active <script> parsing
+    → JS brute-force (common paths)
+    → JS filter (exclude libraries)
+    → download (curl → wget → urllib fallback)
+    → secret scanning (regex + gf + trufflehog + gitleaks + SecretFinder)
+```
 
----
+## Requirements
 
-## **Installation**
+- Python 3.8+
+- Go 1.19+
+- curl or wget
 
-### **1. Requirements**
-- **Python 3.8+**
-- **Go (1.19+)** – Required for `httpx`, `gau`, `katana`, `waybackurls`, `hakrawler`, `gf`
-- **Curl / Wget** – For downloading JavaScript files
-- **TruffleHog** (optional) – For deeper secret scanning
-- **SecretFinder** (optional) – For automated secret detection
+## Tool Installation
 
----
-
-### **2. Installing Tools**
 ```bash
-# Python packages
-pip install -r requirements.txt  # (if available)
-
-# Go tools
+# Required
 go install github.com/projectdiscovery/httpx/cmd/httpx@latest
 go install github.com/lc/gau/v2/cmd/gau@latest
 go install github.com/projectdiscovery/katana/cmd/katana@latest
 go install github.com/tomnomnom/gf@latest
+
+# Optional but recommended
 go install github.com/tomnomnom/waybackurls@latest
 go install github.com/hakluke/hakrawler@latest
+go install github.com/tomnomnom/anew@latest
 
-# TruffleHog (optional)
-wget https://github.com/trufflesecurity/trufflehog/releases/latest/download/trufflehog_Linux_x86_64.tar.gz
-tar -xzf trufflehog_Linux_x86_64.tar.gz
-sudo mv trufflehog /usr/local/bin/
+# TruffleHog
+wget https://github.com/trufflesecurity/trufflehog/releases/download/v3.95.3/trufflehog_3.95.3_linux_amd64.tar.gz
+tar -xzf trufflehog_3.95.3_linux_amd64.tar.gz && mv trufflehog /usr/local/bin/
+
+# Gitleaks (v5 new)
+# https://github.com/gitleaks/gitleaks/releases
 
 # SecretFinder (optional)
-git clone https://github.com/m4ll0k/SecretFinder.git
-cd SecretFinder && pip install -r requirements.txt
+git clone https://github.com/m4ll0k/SecretFinder.git /opt/SecretFinder
+pip install -r /opt/SecretFinder/requirements.txt --break-system-packages
+ln -s /opt/SecretFinder/SecretFinder.py /usr/local/bin/SecretFinder
 ```
 
----
+## Usage
 
-## **Usage**
-
-### **1. Single Domain Scan**
 ```bash
-python3 jsrecon.py --domain example.com -o output/ --insecure --threads 50
+# Single domain
+python3 jsrecon.py --domain example.com -o output/
+
+# Single domain, TLS bypass (self-signed / corporate proxy)
+python3 jsrecon.py --domain example.com -o output/ --insecure
+
+# Multiple subdomains from file
+python3 jsrecon.py -s subs.txt -o output/
+
+# With higher thread count
+python3 jsrecon.py -s subs.txt -o output/ --threads 50 --insecure
+
+# Scan all JS including libraries
+python3 jsrecon.py -s subs.txt -o output/ --scan-all-js
+
+# Skip stages (use cached results)
+python3 jsrecon.py -s subs.txt -o output/ --skip-live-check
+python3 jsrecon.py -s subs.txt -o output/ --skip-url-collection
+
+# Only extract JS URLs, skip download and scanning
+python3 jsrecon.py -s subs.txt -o output/ --skip-download
 ```
-- `--domain` – Domain to scan.
-- `-o output/` – Directory to store results.
-- `--insecure` – Skip TLS certificate validation (for self-signed certificates).
-- `--threads 50` – Increase parallel processing threads.
 
----
+## Flags
 
-### **2. Scan Multiple Domains from a List**
-```bash
-python3 jsrecon.py -s domains.txt -o output/ --insecure --threads 50
-```
-- `-s domains.txt` – File containing a list of domains (one per line).
+| Flag | Description |
+|------|-------------|
+| `-d / --domain` | Single domain to scan |
+| `-s / --subs` | File with subdomains (one per line) |
+| `-o / --output` | Output directory |
+| `-t / --threads` | Worker threads (default: 30) |
+| `--insecure` | Disable TLS verification (curl -k, httpx -no-verify-ssl, etc.) |
+| `--scan-all-js` | Scan all JS including known libraries |
+| `--skip-live-check` | Reuse existing live.txt |
+| `--skip-url-collection` | Reuse existing all_urls.txt |
+| `--skip-download` | Stop after JS extraction |
 
----
+## Output Structure
 
-### **3. Additional Parameters**
-| Parameter | Description |
-|-----------|-------------|
-| `--scan-all-js` | Scan all JavaScript files (default skips libraries). |
-| `--skip-live-check` | Skip live host verification with `httpx`. |
-| `--skip-url-collection` | Skip URL collection (use existing results). |
-| `--skip-download` | Only extract JavaScript URLs without downloading. |
-
----
-
-## **Output Structure**
 ```
 output/
-├── live/                  # Live hosts
-│   └── live.txt
-├── urls/                  # Collected URLs
-│   └── all_urls.txt
-├── js/                    # JavaScript file metadata
-│   ├── js_urls.txt        # All JavaScript URLs
-│   └── custom_js.txt      # Non-library JavaScript files
-├── js/downloaded/         # Downloaded JavaScript files
-│   ├── *.js               # JavaScript files
-│   └── _failed.txt        # Failed downloads
-├── secrets/               # Secret scanning results
-│   ├── final_report.txt   # Final report
-│   ├── raw/               # Raw results
-│   │   ├── regex_findings.json
-│   │   ├── gf_*.txt
-│   │   ├── trufflehog.json
-│   │   └── SecretFinder/
-└── logs/                  # Log files
+├── live/
+│   └── live.txt                  # Live hosts from httpx
+├── urls/
+│   └── all_urls.txt              # All collected URLs
+├── js/
+│   ├── js_urls.txt               # All JS URLs
+│   ├── custom_js.txt             # Filtered (no libraries)
+│   └── downloaded/               # Downloaded JS files
+│       └── _failed.txt
+├── secrets/
+│   ├── final_report.txt          # Main report
+│   └── raw/
+│       ├── regex_findings.json
+│       ├── gf_*.txt
+│       ├── trufflehog.json
+│       └── gitleaks.json
+└── logs/
     └── run_YYYYMMDD_HHMMSS.log
 ```
 
----
+## Secret Scanners
 
-## **Secret Scanning Results**
-| **Type** | **Description** | **Example** |
-|----------|----------------|-------------|
-| AWS Access Key | AWS user access keys | `AKIAIOSFODNN7EXAMPLE` |
-| AWS Secret Key | AWS secret access keys | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` |
-| Google API Key | Google API keys | `AIzaSyDqXy8XJ5QpZ5J5J5J5J5J5J5J5J5J5J5` |
-| GitHub Token | GitHub personal tokens | `ghp_abc123...` |
-| Slack Token | Slack tokens | `xoxb-1234567890-1234567890123-abcdefghijklmnopqrstuvwx` |
-| Stripe Key | Stripe payment keys | `sk_test_51ABC123...` |
-| JWT Token | JSON Web Tokens | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c` |
-| Firebase URL | Firebase configurations | `https://project.firebaseio.com` |
-| Private Key | Private key blocks | ```-----BEGIN RSA PRIVATE KEY----- MIIEpAIBAAKCAQEA... -----END RSA PRIVATE KEY-----``` |
-| Password in URL | URLs with embedded passwords | `http://admin:SuperSecret123@site.com` |
+| Scanner | Type | Notes |
+|---------|------|-------|
+| regex | Built-in | 35+ patterns, entropy filtering, false-positive suppression |
+| gf | External | aws-keys, jwt, firebase, secrets, s3-buckets, etc. |
+| trufflehog | External | Filesystem scan, JSON output |
+| gitleaks | External | 200+ built-in rules, v5 addition |
+| SecretFinder | External | Auto-detected at `/opt/SecretFinder/` or `$PATH` |
 
----
+## Downloader Behaviour (v5)
 
-## **Examples**
+- Backend priority: `curl → wget → urllib`
+- Per-domain rate limiting (max 4 concurrent, 150ms delay)
+- Exponential backoff on failure (2s, 4s)
+- User-Agent rotation across retries
+- HTTP ↔ HTTPS scheme fallback
+- Content validation — rejects HTML error pages
+- SHA-256 deduplication (skips identical files from CDN mirrors)
+- 15 MB max file size
 
-### **1. Testing Kapital Bank’s Pre-Production Environment**
-```bash
-python3 jsrecon.py --domain pre-cb.kapitalbank.az -o kapitalbank_test/ --insecure --threads 30
-```
-- **Results:** Check `kapitalbank_test/secrets/final_report.txt` for sensitive findings.
+## Notes
 
----
+- `--insecure` disables TLS verification across **all** tools (curl, wget, httpx, katana, hakrawler, urllib). Use when target is behind a corporate SSL inspection proxy.
+- SecretFinder is auto-detected at `/opt/SecretFinder/SecretFinder.py`, `~/tools/SecretFinder/`, or `$PATH`.
+- All scanners run in parallel (ThreadPoolExecutor, 5 workers).
+- Findings are deduplicated by `type|match` before the final report.
 
-### **2. Parallel Scan of Multiple Domains**
-```bash
-python3 jsrecon.py -s top_domains.txt -o bulk_scan/ --threads 100 --insecure
-```
-- **`top_domains.txt`** – File containing domains to scan.
+## License
 
----
-
-### **3. Extract JavaScript URLs Without Downloading**
-```bash
-python3 jsrecon.py --domain example.com -o js_only/ --skip-download
-```
-- **Results:** Check `js_only/js/custom_js.txt` for JavaScript URLs.
-
----
-
-## **Performance & Optimization**
-| **Parameter** | **Description** | **Recommended Value** |
-|---------------|----------------|-----------------------|
-| `--threads` | Increase parallel processing threads | 30-100 |
-| `--insecure` | Skip TLS certificate validation | For self-signed certificates |
-| `--scan-all-js` | Scan all JavaScript files | When libraries need inspection |
-| `--skip-live-check` | Skip live host verification | When using cached results |
-
----
-
-## **License**
-This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
-
----
-
+MIT
