@@ -40,7 +40,8 @@ wget https://github.com/trufflesecurity/trufflehog/releases/download/v3.95.3/tru
 tar -xzf trufflehog_3.95.3_linux_amd64.tar.gz && mv trufflehog /usr/local/bin/
 
 # Gitleaks (v5 new)
-# https://github.com/gitleaks/gitleaks/releases
+wget https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz
+tar -xzf gitleaks_8.24.3_linux_x64.tar.gz && mv gitleaks /usr/local/bin/
 
 # SecretFinder (optional)
 git clone https://github.com/m4ll0k/SecretFinder.git /opt/SecretFinder
