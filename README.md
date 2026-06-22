@@ -16,6 +16,9 @@
 
 ## Pipeline
 
+> [!NOTE]
+> The workflow runs linearly, chaining multiple tools together to ensure maximum coverage while filtering out noise.
+
 ```
 subs.txt / --domain
     → httpx (live check)
@@ -36,7 +39,8 @@ subs.txt / --domain
 
 ## Tool Installation
 
-We highly recommend using the provided auto-installer script, which handles dependencies, binaries, and `$PATH` configuration:
+> [!TIP]
+> **Quick Start:** We highly recommend using the provided auto-installer script, which handles dependencies, binaries, and `$PATH` configuration.
 
 ```bash
 chmod +x install_tools.sh
@@ -182,12 +186,17 @@ output/
 
 ## Notes
 
-- `--insecure` disables TLS verification across **all** tools (curl, wget, httpx, katana, hakrawler, urllib). Use when target is behind a corporate SSL inspection proxy.
+> [!WARNING]
+> `--insecure` disables TLS verification across **all** tools (curl, wget, httpx, katana, hakrawler, urllib). Use when target is behind a corporate SSL inspection proxy.
+
+> [!NOTE]
+> **Performance & Core Behaviors:**
+> - All scanners run in parallel (ThreadPoolExecutor, 10 workers).
+> - Findings are deduplicated by `type|match` before the final report.
+> - `ffuf` replaces the head_ok loop for JS brute-forcing when available (much faster).
+> - `git-dumper` checks `/.git/config` exposure and dumps accessible repos.
+
 - SecretFinder is auto-detected at `/opt/SecretFinder/SecretFinder.py`, `~/tools/SecretFinder/`, or `$PATH`.
-- All scanners run in parallel (ThreadPoolExecutor, 10 workers).
-- Findings are deduplicated by `type|match` before the final report.
-- `ffuf` replaces the head_ok loop for JS brute-forcing when available (much faster).
-- `git-dumper` checks `/.git/config` exposure and dumps accessible repos.
 - `head_ok()` tries `.jsx`, `.ts`, `.mjs`, `.cjs` extensions on 404.
 
 ## License
