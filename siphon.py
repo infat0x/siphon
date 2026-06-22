@@ -153,58 +153,174 @@ JS_EXCLUDE_RE = re.compile(
 )
 
 SECRET_PATTERNS: dict[str, str] = {
+    # ---------------------------------------------------------
+    # COMPREHENSIVE SECRET PATTERNS (100+ Total)
+    # ---------------------------------------------------------
     # AWS
     "AWS Access Key":      r"AKIA[0-9A-Z]{16}",
     "AWS Secret Key":      r"(?i)aws.{0,30}secret.{0,30}['\"][0-9a-zA-Z/+]{40}['\"]",
     "AWS MWS Auth Token":  r"amzn\.mws\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
-    # GitHub / GitLab
-    "GitHub Token":        r"gh[pousr]_[A-Za-z0-9_]{36,}",
+    "AWS Session Token":   r"(?i)aws_session_token(?:[=:\"\']){1,3}([a-zA-Z0-9/+=]{16,})",
+    
+    # GitHub / GitLab / Bitbucket
+    "GitHub PAT":          r"gh[pousr]_[A-Za-z0-9_]{36,}",
     "GitHub Fine-grained": r"github_pat_[A-Za-z0-9_]{82}",
+    "GitHub OAuth":        r"gho_[a-zA-Z0-9]{36}",
     "GitLab PAT":          r"glpat-[A-Za-z0-9_\-]{20}",
+    "Bitbucket Client ID": r"client_id=[a-zA-Z0-9]{32}",
+    "Bitbucket Secret":    r"client_secret=[a-zA-Z0-9_\-]{64}",
+    
     # Google
     "Google API Key":      r"AIza[0-9A-Za-z\-_]{35}",
     "Google Cloud Key":    r"GOOG[\w\W]{10,30}",
+    "Google OAuth":        r"ya29\.[0-9A-Za-z\-_]+",
+    "GCP Service Account": r"\"type\": \"service_account\"",
+    
     # Slack
     "Slack Token":         r"xox[baprs]-[0-9A-Za-z\-]{10,}",
     "Slack Webhook":       r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[a-zA-Z0-9]+",
-    # Payments
-    "Stripe Key":          r"(?:sk|pk)_(test|live)_[0-9a-zA-Z]{24,}",
+    
+    # Payments (Stripe, Square, PayPal)
+    "Stripe Standard Key": r"(?:sk|pk)_(test|live)_[0-9a-zA-Z]{24,}",
     "Stripe Restricted":   r"rk_(test|live)_[0-9a-zA-Z]{24,}",
     "Square Access Token": r"EAAA[a-zA-Z0-9]{60}",
     "Square OAuth":        r"sq0[a-z]{3}-[0-9A-Za-z\-_]{22,43}",
-    # Email / Messaging
+    "PayPal Client ID":    r"Ad-[a-zA-Z0-9]{16,}",
+    "PayPal Secret":       r"E[a-zA-Z0-9_-]{16,}",
+    
+    # Email / Messaging (Mailgun, SendGrid, Mailchimp, Twilio, Telegram)
     "SendGrid Key":        r"SG\.[a-zA-Z0-9_\-]{22}\.[a-zA-Z0-9_\-]{43}",
     "Mailgun Key":         r"key-[0-9a-zA-Z]{32}",
+    "Mailgun Pub Key":     r"pubkey-[0-9a-zA-Z]{32}",
     "Mailchimp Key":       r"[0-9a-f]{32}-us[0-9]{1,2}",
     "Twilio Account SID":  r"AC[a-zA-Z0-9]{32}",
     "Twilio Auth Token":   r"(?i)twilio.{0,20}['\"][a-f0-9]{32}['\"]",
+    "Twilio API Key":      r"SK[0-9a-fA-F]{32}",
     "Telegram Bot Token":  r"[0-9]{8,10}:[a-zA-Z0-9_\-]{35}",
-    # Tokens / Keys
-    "JWT Token":           r"eyJ[a-zA-Z0-9_\-]+\.eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+",
-    "Bearer Token":        r"[Bb]earer\s+[A-Za-z0-9\-_\.]{20,}",
-    "Private Key Block":   r"-----BEGIN\s(?:RSA\s|DSA\s|EC\s)?PRIVATE KEY-----",
-    "Password in URL":     r"[a-zA-Z]{3,10}://[^/\s:@]{3,20}:[^/\s:@]{3,20}@",
-    "Firebase URL":        r"https?://[a-z0-9\-]+\.firebaseio\.com",
-    "Mapbox Token":        r"pk\.eyJ1[a-zA-Z0-9_\-\.]+",
-    "Algolia API Key":     r"(?i)algolia.{0,20}['\"][a-zA-Z0-9]{32}['\"]",
-    "Artifactory Token":   r"(?:\s|=|:|\"|\^)AKC[a-zA-Z0-9]{10,}",
+    "Discord Bot Token":   r"([NMO][a-zA-Z0-9_-]{23,27}\.[a-zA-Z0-9_-]{6}\.[a-zA-Z0-9_-]{27})",
+    "Discord Webhook":     r"https://discord\.com/api/webhooks/[0-9]+/[a-zA-Z0-9_-]+",
+    
+    # Cloud & Infrastructure (Azure, Heroku, DigitalOcean, Pulumi, Vercel)
     "Azure Client Secret": r"(?i)client.?secret.{0,20}['\"][a-zA-Z0-9~_\-.]{34,}['\"]",
     "Azure Storage Key":   r"DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{88}",
-    "Databricks Token":    r"dapi[a-f0-9]{32}",
-    "Grafana Token":       r"glc_[A-Za-z0-9+/]{32,}",
-    "Linear API Key":      r"lin_api_[a-zA-Z0-9]{40}",
-    "Notion Token":        r"secret_[a-zA-Z0-9]{43}",
-    "Shopify Token":       r"shpat_[a-fA-F0-9]{32}",
-    "Postman API Key":     r"PMAK-[a-fA-F0-9]{24}-[a-fA-F0-9]{34}",
-    "Vault Token":         r"hvs\.[a-zA-Z0-9_\-]{90,}",
-    "WPEngine Token":      r"['\"]wpe_auth['\"].{0,5}['\"][a-z0-9]{40}['\"]",
-    "Internal API URL":    r"(?i)https?://(?:api|internal|dev|staging|admin)\.[a-z0-9\-]+\.[a-z]{2,}/",
-    "NPM Token":           r"npm_[A-Za-z0-9]{36}",
+    "Azure Tenant ID":     r"tenant(?:_id|Id)?(?:[\s=:\'\"]+)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
     "Heroku API Key":      r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
     "DigitalOcean Token":  r"dop_v1_[a-f0-9]{64}",
+    "Pulumi Token":        r"pul-[a-f0-9]{40}",
+    "Vercel Token":        r"[\s=:\'\"]([A-Za-z0-9_\-]{24})[\s=:\'\"]",
+    
+    # Monitoring & Logging (Datadog, New Relic, Sentry, Grafana, PagerDuty)
+    "Datadog Token":       r"ddp_[a-zA-Z0-9_\-]{32}",
+    "New Relic Key":       r"(?i)NRRA-[a-fA-F0-9]{27}",
+    "Sentry Token":        r"sntrys_[a-zA-Z0-9_\-]{64}",
+    "Grafana Token":       r"glc_[A-Za-z0-9+/]{32,}",
+    "PagerDuty Token":     r"pd-[A-Za-z0-9_\-]{20}",
+    
+    # SaaS / Tools / Platforms
+    "Algolia API Key":     r"(?i)algolia.{0,20}['\"][a-zA-Z0-9]{32}['\"]",
+    "Artifactory Token":   r"(?:\s|=|:|\"|\^)AKC[a-zA-Z0-9]{10,}",
+    "Asana Token":         r"0\/[0-9a-fA-F]{32}",
+    "Auth0 Token":         r"auth0(?:\||[a-zA-Z0-9_\-]{32})",
+    "Calendly Token":      r"eyJhb[a-zA-Z0-9_\-]{20,}",
+    "CircleCI Token":      r"(?i)circleci.{0,20}['\"][a-f0-9]{40}['\"]",
+    "Databricks Token":    r"dapi[a-f0-9]{32}",
+    "Dropbox Token":       r"sl\.[a-zA-Z0-9_\-]{15,}",
+    "Figma Token":         r"figd_[a-zA-Z0-9\-_]{39}",
+    "HubSpot Token":       r"pat-[a-z]{2}-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}",
+    "Intercom Token":      r"dG9r:[a-zA-Z0-9_\-]{20,}",
+    "Kraken Key":          r"[A-Za-z0-9_\-]{80,90}",
+    "Linear API Key":      r"lin_api_[a-zA-Z0-9]{40}",
+    "LinkedIn ID":         r"(?i)linkedin(?:_client)?_id(?:[\s=:\'\"]+)([a-zA-Z0-9]{14})",
+    "Mapbox Token":        r"pk\.eyJ1[a-zA-Z0-9_\-\.]+",
+    "Notion Token":        r"secret_[a-zA-Z0-9]{43}",
+    "NPM Token":           r"npm_[A-Za-z0-9]{36}",
+    "OpenAI API Key":      r"sk-[a-zA-Z0-9]{48}",
+    "Plaid Client ID":     r"client_id(?:[\s=:\'\"]+)([a-f0-9]{24})",
+    "Plaid Secret":        r"secret(?:[\s=:\'\"]+)([a-f0-9]{30})",
+    "Postman API Key":     r"PMAK-[a-fA-F0-9]{24}-[a-fA-F0-9]{34}",
+    "RubyGems Token":      r"rubygems_[a-f0-9]{48}",
+    "Salesforce Token":    r"(?i)salesforce.{0,20}['\"][0-9A-Za-z!@#$%^&*()_+]{40,80}['\"]",
+    "Shopify Token":       r"shpat_[a-fA-F0-9]{32}",
+    "Spotify Secret":      r"(?i)spotify.{0,20}['\"][a-zA-Z0-9]{32}['\"]",
+    "Supabase Token":      r"sbp_[a-zA-Z0-9]{40}",
+    "Typeform Token":      r"tfp_[a-zA-Z0-9]{40}",
+    "Vault Token":         r"hvs\.[a-zA-Z0-9_\-]{90,}",
+    "WPEngine Token":      r"['\"]wpe_auth['\"].{0,5}['\"][a-z0-9]{40}['\"]",
+    "Zendesk Token":       r"(?i)zendesk.{0,20}['\"][a-zA-Z0-9]{40}['\"]",
     "Cloudinary URL":      r"cloudinary://[0-9]+:[A-Za-z0-9_\-]+@[a-z0-9]+",
+    "Contentful Token":    r"(?i)contentful(?:_api)?_key(?:[\s=:\'\"]+)([a-zA-Z0-9\-_]{43})",
+    "Netlify Token":       r"(?i)netlify.{0,20}['\"][a-zA-Z0-9\-_]{40,43}['\"]",
+    
+    # Passwords & Generic Auth
+    "JWT Token":           r"eyJ[a-zA-Z0-9_\-]+\.eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+",
+    "Bearer Token":        r"(?i)[Bb]earer\s+[A-Za-z0-9\-_\.]{20,}",
+    "Basic Auth":          r"(?i)Basic\s+[A-Za-z0-9+/=]{20,}",
+    "Password in URL":     r"[a-zA-Z]{3,10}://[^/\s:@]{3,20}:[^/\s:@]{3,20}@",
+    "Firebase URL":        r"https?://[a-z0-9\-]+\.firebaseio\.com",
+    "Internal API URL":    r"(?i)https?://(?:api|internal|dev|staging|admin)\.[a-z0-9\-]+\.[a-z]{2,}/",
+    
+    # Encryption / SSH / Keys
+    "Private Key Block":   r"-----BEGIN\s(?:RSA\s|DSA\s|EC\s)?PRIVATE KEY-----",
+    "SSH RSA Private":     r"-----BEGIN OPENSSH PRIVATE KEY-----",
+    "SSH DSA Private":     r"-----BEGIN DSA PRIVATE KEY-----",
+    "SSH EC Private":      r"-----BEGIN EC PRIVATE KEY-----",
+    "PGP Private Block":   r"-----BEGIN PGP PRIVATE KEY BLOCK-----",
+    
+    # Cryptos and Wallets (Basic matchers)
+    "Bitcoin Address":     r"(?i)(?:bitcoin|btc).{0,20}['\"](1[a-km-zA-HJ-NP-Z1-9]{25,34}|3[a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[q-z0-9]{39,59})['\"]",
+    "Ethereum Address":    r"(?i)(?:ethereum|eth).{0,20}['\"](0x[a-fA-F0-9]{40})['\"]",
+    
+    # Generic Catches
     "Generic API Key":     r"(?i)(?:api[_\-]?key|apikey|access[_\-]?token|auth[_\-]?token|secret[_\-]?key)['\"\s:=]+([A-Za-z0-9_\-]{20,})",
     "Generic Secret":      r"(?i)(?:secret|password|passwd|pwd)\s*[=:]\s*['\"]([A-Za-z0-9_\-!@#$%^&*]{12,})['\"]",
+    "Generic Client ID":   r"(?i)(?:client[_\-]?id|appid)['\"\s:=]+([A-Za-z0-9_\-]{15,})",
+    "Generic Refresh Tok": r"(?i)(?:refresh[_\-]?token)['\"\s:=]+([A-Za-z0-9_\-]{20,})",
+    "Generic Bearer Var":  r"(?i)(?:bearer|jwt)[_\-]?token['\"\s:=]+([A-Za-z0-9_\-\.]{20,})",
+    
+    # Miscellaneous APIs
+    "Airtable API Key":    r"key[0-9a-zA-Z]{13}",
+    "Amplitude API Key":   r"(?i)amplitude.{0,20}['\"][a-f0-9]{32}['\"]",
+    "AppSync API Key":     r"da2-[a-z0-9]{26}",
+    "Braintree Token":     r"access_token\$[a-z0-9]{5,10}\$[a-z0-9]{30,}",
+    "Buildkite Token":     r"bkua_[0-9a-zA-Z]{40}",
+    "ButterCMS Token":     r"(?i)butter.{0,20}['\"][0-9a-f]{40}['\"]",
+    "Campfire Token":      r"(?i)campfire.{0,20}['\"][a-f0-9]{40}['\"]",
+    "Canny API Key":       r"(?i)canny.{0,20}['\"][0-9a-f]{32}['\"]",
+    "Clearbit Key":        r"sk_[0-9a-f]{32}",
+    "Coda Token":          r"(?i)coda.{0,20}['\"][a-zA-Z0-9_\-]{40,60}['\"]",
+    "Coinbase API Key":    r"(?i)coinbase.{0,20}['\"][a-zA-Z0-9_\-]{30,50}['\"]",
+    "Confluent Key":       r"(?i)confluent.{0,20}['\"][a-zA-Z0-9]{30,40}['\"]",
+    "Courier API Key":     r"pk_[a-z]{4}_[A-Z0-9]{26}",
+    "CustomerIO Key":      r"(?i)customerio.{0,20}['\"][0-9a-f]{32}['\"]",
+    "Drip API Key":        r"(?i)drip.{0,20}['\"][a-zA-Z0-9_\-]{30,50}['\"]",
+    "Dynatrace Token":     r"dt0c01\.[A-Z0-9]{24}\.[A-Z0-9]{64}",
+    "Easypost API Key":    r"EZAK[a-zA-Z0-9]{50,}",
+    "Fastly Token":        r"(?i)fastly.{0,20}['\"][a-zA-Z0-9_\-]{32}['\"]",
+    "Firebase Cloud Mess": r"AAAA[A-Za-z0-9_-]{7}:[A-Za-z0-9_-]{140}",
+    "Flutterwave Key":     r"FLWSECK_TEST-[a-h0-9]{32}-X",
+    "Frameio Token":       r"fio-u-[a-zA-Z0-9\-_]{64}",
+    "Gitter Token":        r"(?i)gitter.{0,20}['\"][a-f0-9]{40}['\"]",
+    "HashiCorp TF Token":  r"[a-zA-Z0-9]{14}\.atlasv1\.[a-zA-Z0-9_\-]{60,}",
+    "IronMQ Token":        r"(?i)ironmq.{0,20}['\"][a-zA-Z0-9_\-]{30,50}['\"]",
+    "KeenIO API Key":      r"(?i)keenio.{0,20}['\"][A-Z0-9]{64}['\"]",
+    "LaunchDarkly Token":  r"sdk-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}",
+    "Lokalise Token":      r"(?i)lokalise.{0,20}['\"][a-f0-9]{40}['\"]",
+    "MacStadium Token":    r"(?i)macstadium.{0,20}['\"][a-zA-Z0-9]{30,50}['\"]",
+    "Mattermost Token":    r"(?i)mattermost.{0,20}['\"][a-zA-Z0-9]{26}['\"]",
+    "MessageBird Key":     r"(?i)messagebird.{0,20}['\"][a-zA-Z0-9]{25}['\"]",
+    "Mixpanel API Key":    r"(?i)mixpanel.{0,20}['\"][a-f0-9]{32}['\"]",
+    "Pendo Token":         r"(?i)pendo.{0,20}['\"][a-f0-9]{32}['\"]",
+    "Picqer API Key":      r"(?i)picqer.{0,20}['\"][a-zA-Z0-9_\-]{30,50}['\"]",
+    "Ramp Token":          r"(?i)ramp.{0,20}['\"][a-zA-Z0-9_\-]{30,50}['\"]",
+    "Sanity API Key":      r"sk[a-zA-Z0-9]{40,}",
+    "Scalingo Token":      r"tk-[a-zA-Z0-9_\-]{40,}",
+    "Segment API Key":     r"(?i)segment.{0,20}['\"][a-zA-Z0-9_\-]{32}['\"]",
+    "Smartling Token":     r"(?i)smartling.{0,20}['\"][a-zA-Z0-9_\-]{40}['\"]",
+    "SonarQube Token":     r"sq[a-z]{3}_[a-f0-9]{40}",
+    "StackHawk Token":     r"hawk\.[a-zA-Z0-9_\-]{20}\.[a-zA-Z0-9_\-]{20}",
+    "TravisCI Token":      r"(?i)travis.{0,20}['\"][a-zA-Z0-9_\-]{22}['\"]",
+    "WorkOS API Key":      r"sk_[a-zA-Z0-9]{20,}",
+    "Yandex API Key":      r"AQVN[A-Za-z0-9_\-]{35,}",
 }
 
 # Per-pattern minimum entropy override.
