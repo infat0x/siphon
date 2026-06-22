@@ -1,4 +1,4 @@
-# JS Recon & Secret Hunter — v6
+# Siphon — v6
 
 Multi-stage JavaScript reconnaissance and secret scanning tool.
 
@@ -67,26 +67,26 @@ pip install git-dumper
 
 ```bash
 # Single domain
-python3 jsrecon.py --domain example.com -o output/
+python3 siphon.py --domain example.com -o output/
 
 # Single domain, TLS bypass (self-signed / corporate proxy)
-python3 jsrecon.py --domain example.com -o output/ --insecure
+python3 siphon.py --domain example.com -o output/ --insecure
 
 # Multiple subdomains from file
-python3 jsrecon.py -s subs.txt -o output/
+python3 siphon.py -s subs.txt -o output/
 
 # With higher thread count
-python3 jsrecon.py -s subs.txt -o output/ --threads 50 --insecure
+python3 siphon.py -s subs.txt -o output/ --threads 50 --insecure
 
 # Scan all JS including libraries
-python3 jsrecon.py -s subs.txt -o output/ --scan-all-js
+python3 siphon.py -s subs.txt -o output/ --scan-all-js
 
 # Skip stages (use cached results)
-python3 jsrecon.py -s subs.txt -o output/ --skip-live-check
-python3 jsrecon.py -s subs.txt -o output/ --skip-url-collection
+python3 siphon.py -s subs.txt -o output/ --skip-live-check
+python3 siphon.py -s subs.txt -o output/ --skip-url-collection
 
 # Only extract JS URLs, skip download and scanning
-python3 jsrecon.py -s subs.txt -o output/ --skip-download
+python3 siphon.py -s subs.txt -o output/ --skip-download
 ```
 
 ## Flags

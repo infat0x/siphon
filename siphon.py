@@ -15,13 +15,6 @@
 # ║    • Higher entropy threshold tuning per pattern category                ║
 # ╠══════════════════════════════════════════════════════════════════════════╣
 # ║  Usage:                                                                  ║
-# ║    python3 jsrecon.py --domain example.com -o output/                    ║
-# ║    python3 jsrecon.py --domain example.com -o output/ --insecure         ║
-# ║    python3 jsrecon.py -s subs.txt -o output/ [options]                   ║
-# ║    python3 jsrecon.py -s subs.txt -o output/ --insecure --threads 50     ║
-# ║    python3 jsrecon.py -s subs.txt -o output/ --scan-all-js               ║
-# ║    python3 jsrecon.py -s subs.txt -o output/ --skip-live-check           ║
-# ║    python3 jsrecon.py -s subs.txt -o output/ --skip-url-collection       ║
 # ║    python3 jsrecon.py -s subs.txt -o output/ --skip-download             ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
@@ -160,25 +153,43 @@ JS_EXCLUDE_RE = re.compile(
 )
 
 SECRET_PATTERNS: dict[str, str] = {
+    # AWS
     "AWS Access Key":      r"AKIA[0-9A-Z]{16}",
     "AWS Secret Key":      r"(?i)aws.{0,30}secret.{0,30}['\"][0-9a-zA-Z/+]{40}['\"]",
-    "Google API Key":      r"AIza[0-9A-Za-z\-_]{35}",
+    "AWS MWS Auth Token":  r"amzn\.mws\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    # GitHub / GitLab
     "GitHub Token":        r"gh[pousr]_[A-Za-z0-9_]{36,}",
+    "GitHub Fine-grained": r"github_pat_[A-Za-z0-9_]{82}",
+    "GitLab PAT":          r"glpat-[A-Za-z0-9_\-]{20}",
+    # Google
+    "Google API Key":      r"AIza[0-9A-Za-z\-_]{35}",
+    "Google Cloud Key":    r"GOOG[\w\W]{10,30}",
+    # Slack
     "Slack Token":         r"xox[baprs]-[0-9A-Za-z\-]{10,}",
     "Slack Webhook":       r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[a-zA-Z0-9]+",
+    # Payments
     "Stripe Key":          r"(?:sk|pk)_(test|live)_[0-9a-zA-Z]{24,}",
+    "Stripe Restricted":   r"rk_(test|live)_[0-9a-zA-Z]{24,}",
+    "Square Access Token": r"EAAA[a-zA-Z0-9]{60}",
+    "Square OAuth":        r"sq0[a-z]{3}-[0-9A-Za-z\-_]{22,43}",
+    # Email / Messaging
     "SendGrid Key":        r"SG\.[a-zA-Z0-9_\-]{22}\.[a-zA-Z0-9_\-]{43}",
+    "Mailgun Key":         r"key-[0-9a-zA-Z]{32}",
+    "Mailchimp Key":       r"[0-9a-f]{32}-us[0-9]{1,2}",
+    "Twilio Account SID":  r"AC[a-zA-Z0-9]{32}",
+    "Twilio Auth Token":   r"(?i)twilio.{0,20}['\"][a-f0-9]{32}['\"]",
+    "Telegram Bot Token":  r"[0-9]{8,10}:[a-zA-Z0-9_\-]{35}",
+    # Tokens / Keys
     "JWT Token":           r"eyJ[a-zA-Z0-9_\-]+\.eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+",
     "Bearer Token":        r"[Bb]earer\s+[A-Za-z0-9\-_\.]{20,}",
-    "Private Key Block":   r"-----BEGIN\s(?:RSA\s)?PRIVATE KEY-----",
+    "Private Key Block":   r"-----BEGIN\s(?:RSA\s|DSA\s|EC\s)?PRIVATE KEY-----",
     "Password in URL":     r"[a-zA-Z]{3,10}://[^/\s:@]{3,20}:[^/\s:@]{3,20}@",
     "Firebase URL":        r"https?://[a-z0-9\-]+\.firebaseio\.com",
-    "Mailgun Key":         r"key-[0-9a-zA-Z]{32}",
     "Mapbox Token":        r"pk\.eyJ1[a-zA-Z0-9_\-\.]+",
     "Algolia API Key":     r"(?i)algolia.{0,20}['\"][a-zA-Z0-9]{32}['\"]",
-    "Square OAuth":        r"sq0[a-z]{3}-[0-9A-Za-z\-_]{22,43}",
     "Artifactory Token":   r"(?:\s|=|:|\"|\^)AKC[a-zA-Z0-9]{10,}",
     "Azure Client Secret": r"(?i)client.?secret.{0,20}['\"][a-zA-Z0-9~_\-.]{34,}['\"]",
+    "Azure Storage Key":   r"DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{88}",
     "Databricks Token":    r"dapi[a-f0-9]{32}",
     "Grafana Token":       r"glc_[A-Za-z0-9+/]{32,}",
     "Linear API Key":      r"lin_api_[a-zA-Z0-9]{40}",
@@ -189,11 +200,7 @@ SECRET_PATTERNS: dict[str, str] = {
     "WPEngine Token":      r"['\"]wpe_auth['\"].{0,5}['\"][a-z0-9]{40}['\"]",
     "Internal API URL":    r"(?i)https?://(?:api|internal|dev|staging|admin)\.[a-z0-9\-]+\.[a-z]{2,}/",
     "NPM Token":           r"npm_[A-Za-z0-9]{36}",
-    "Telegram Bot Token":  r"[0-9]{8,10}:[a-zA-Z0-9_\-]{35}",
-    "Twilio Account SID":  r"AC[a-zA-Z0-9]{32}",
-    "Twilio Auth Token":   r"(?i)twilio.{0,20}['\"][a-f0-9]{32}['\"]",
     "Heroku API Key":      r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
-    "Azure Storage Key":   r"DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{88}",
     "DigitalOcean Token":  r"dop_v1_[a-f0-9]{64}",
     "Cloudinary URL":      r"cloudinary://[0-9]+:[A-Za-z0-9_\-]+@[a-z0-9]+",
     "Generic API Key":     r"(?i)(?:api[_\-]?key|apikey|access[_\-]?token|auth[_\-]?token|secret[_\-]?key)['\"\s:=]+([A-Za-z0-9_\-]{20,})",
@@ -205,6 +212,7 @@ SECRET_PATTERNS: dict[str, str] = {
 # because they follow a fixed format.  Generic patterns need a higher bar.
 _PATTERN_ENTROPY: dict[str, float] = {
     "AWS Access Key":      3.5,
+    "AWS MWS Auth Token":  3.0,
     "JWT Token":           3.0,
     "Private Key Block":   2.5,   # fixed header, very distinctive
     "Firebase URL":        2.0,
@@ -213,6 +221,7 @@ _PATTERN_ENTROPY: dict[str, float] = {
     "Generic API Key":     3.8,
     "Generic Secret":      3.8,
     "Bearer Token":        3.5,
+    "Mailchimp Key":       3.0,
 }
 _DEFAULT_ENTROPY = 3.0            # applied when no override exists
 
@@ -227,20 +236,34 @@ FALSE_POSITIVE_RE = re.compile(
 )
 
 COMMON_JS_PATHS: list[str] = [
+    # General / Webpack / Bundlers
     "/app.js","/main.js","/index.js","/bundle.js","/init.js",
     "/config.js","/settings.js","/env.js","/constants.js",
     "/api.js","/utils.js","/helpers.js","/common.js","/global.js",
     "/auth.js","/router.js","/routes.js","/store.js","/services.js",
+    "/vendors.js","/chunk.js","/core.js","/base.js",
+    
+    # Common directories
     "/js/app.js","/js/main.js","/js/index.js","/js/config.js",
     "/js/api.js","/js/utils.js","/js/helpers.js","/js/auth.js",
-    "/static/js/app.js","/static/js/main.js","/static/js/index.js",
+    "/js/bundle.js","/js/vendors.js",
+    "/static/js/app.js","/static/js/main.js","/static/js/index.js","/static/js/bundle.js",
     "/assets/js/app.js","/assets/js/main.js","/assets/js/config.js",
-    "/assets/js/api.js","/assets/js/utils.js",
-    "/dist/app.js","/dist/main.js","/dist/bundle.js",
-    "/build/app.js","/build/main.js","/build/bundle.js",
+    "/assets/js/api.js","/assets/js/utils.js","/assets/application.js",
+    "/dist/app.js","/dist/main.js","/dist/bundle.js","/dist/index.js",
+    "/build/app.js","/build/main.js","/build/bundle.js","/build/static/js/main.js",
     "/public/js/app.js","/public/js/main.js",
     "/src/app.js","/src/main.js","/src/index.js",
-    "/v1/app.js","/v2/app.js","/api/config.js",
+    "/scripts/app.js","/scripts/main.js","/scripts/bundle.js",
+    "/app/app.js","/app/main.js","/admin/app.js","/admin/main.js",
+    
+    # APIs & Configs
+    "/v1/app.js","/v2/app.js","/api/config.js","/api/v1/config.js",
+    "/config/config.js","/config/index.js","/env.production.js",
+    
+    # Frameworks (Next, Nuxt, WP, etc)
+    "/_next/static/chunks/main.js","/_next/static/chunks/app-pages.js",
+    "/_nuxt/app.js",
     "/wp-content/themes/app.js","/wp-includes/js/api.js",
 ]
 
@@ -285,7 +308,7 @@ def banner() -> None:
    ██║╚════██║██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
    ██║███████║██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
    ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
-{RESET}{DIM}   v5  •  JS Recon & Secret Hunter  •  curl/wget downloader{RESET}
+{RESET}{DIM}   v6  •  Siphon  •  curl/wget downloader{RESET}
    {DIM}gau + katana + waybackurls + hakrawler + active scrape + brute{RESET}
    {DIM}Scanners: regex  gf  trufflehog  gitleaks  SecretFinder  jsluice  jsleak  nuclei  cariddi{RESET}
 """)
@@ -357,7 +380,7 @@ def setup_dirs(base: Path) -> dict[str, Path]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def setup_logger(log_dir: Path) -> logging.Logger:
-    log = logging.getLogger("jsrecon")
+    log = logging.getLogger("siphon")
     log.setLevel(logging.DEBUG)
     fh = logging.FileHandler(
         log_dir / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -1816,7 +1839,7 @@ def write_report(
     sep   = "═" * 70
     lines = [
         sep,
-        "  JS RECON SECRET HUNTER  —  FINAL REPORT  (v5)",
+        "  SIPHON  —  FINAL REPORT  (v6)",
         f"  Generated      : {datetime.now():%Y-%m-%d  %H:%M:%S}",
         f"  Mode           : {'single-domain' if stats.get('single_domain') else 'multi-subdomain'}",
         f"  TLS verify     : {'disabled (--insecure)' if INSECURE else 'enabled'}",
@@ -1932,24 +1955,24 @@ def run_secret_scanning(
 
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
-        prog="jsrecon",
-        description="JS Recon & Secret Hunter  —  v5  (curl/wget + Gitleaks)",
+        prog="siphon",
+        description="Siphon  —  v6  (curl/wget + Gitleaks)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
   # Single domain scan
-  python3 jsrecon.py --domain example.com -o out/
-  python3 jsrecon.py --domain https://example.com -o out/ --insecure
+  python3 siphon.py --domain example.com -o out/
+  python3 siphon.py --domain https://example.com -o out/ --insecure
 
   # Multi-subdomain scan from file
-  python3 jsrecon.py -s subs.txt -o out/
-  python3 jsrecon.py -s subs.txt -o out/ --insecure --threads 50
+  python3 siphon.py -s subs.txt -o out/
+  python3 siphon.py -s subs.txt -o out/ --insecure --threads 50
 
   # Advanced options
-  python3 jsrecon.py --domain example.com -o out/ --scan-all-js
-  python3 jsrecon.py -s subs.txt -o out/ --skip-live-check
-  python3 jsrecon.py -s subs.txt -o out/ --skip-url-collection
-  python3 jsrecon.py -s subs.txt -o out/ --skip-download
+  python3 siphon.py --domain example.com -o out/ --scan-all-js
+  python3 siphon.py -s subs.txt -o out/ --skip-live-check
+  python3 siphon.py -s subs.txt -o out/ --skip-url-collection
+  python3 siphon.py -s subs.txt -o out/ --skip-download
         """,
     )
 

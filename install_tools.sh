@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  JSrecon Tool Installer — auto install & PATH setup         ║
+# ║  Siphon Tool Installer — auto install & PATH setup          ║
 # ║  Run: chmod +x install_tools.sh && ./install_tools.sh       ║
 # ╚══════════════════════════════════════════════════════════════╝
 
@@ -16,7 +16,7 @@ info() { echo -e "  ${CYAN}→${RESET}  $1"; }
 
 echo -e "${BOLD}${CYAN}"
 echo "  ┌──────────────────────────────────────────┐"
-echo "  │   JSrecon Tool Installer                  │"
+echo "  │   Siphon Tool Installer                   │"
 echo "  │   All required + optional tools           │"
 echo "  └──────────────────────────────────────────┘"
 echo -e "${RESET}"
@@ -220,7 +220,7 @@ persist_path() {
     if [ -n "$SHELL_RC" ]; then
         if ! grep -q "GOPATH.*bin" "$SHELL_RC" 2>/dev/null; then
             echo "" >> "$SHELL_RC"
-            echo "# JSrecon — Go tools PATH" >> "$SHELL_RC"
+            echo "# Siphon — Go tools PATH" >> "$SHELL_RC"
             echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> "$SHELL_RC"
             ok "Added GOPATH/bin to ${BOLD}$SHELL_RC${RESET}"
         else
@@ -263,5 +263,5 @@ if [ $missing -eq 0 ]; then
 else
     echo -e "  ${YELLOW}${BOLD}Some tools missing. You can still run:${RESET}"
 fi
-echo -e "  ${DIM}python3 jsrecon.py --domain example.com -o output/${RESET}"
+echo -e "  ${DIM}python3 siphon.py --domain example.com -o output/${RESET}"
 echo ""
