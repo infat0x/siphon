@@ -1,1 +1,4 @@
 IMPLEMENTATION.md
+__pycache__/
+*.pyc
+*.pyo

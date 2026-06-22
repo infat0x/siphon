@@ -121,13 +121,22 @@ REQUIRED_TOOLS: dict[str, str] = {
 }
 
 OPTIONAL_TOOLS: dict[str, str] = {
-    "curl":        "pre-installed on most systems",
-    "wget":        "apt install wget  /  brew install wget",
-    "waybackurls": "go install github.com/tomnomnom/waybackurls@latest",
-    "hakrawler":   "go install github.com/hakluke/hakrawler@latest",
-    "anew":        "go install github.com/tomnomnom/anew@latest",
+    "curl":            "pre-installed on most systems",
+    "wget":            "apt install wget  /  brew install wget",
+    "waybackurls":     "go install github.com/tomnomnom/waybackurls@latest",
+    "hakrawler":       "go install github.com/hakluke/hakrawler@latest",
+    "anew":            "go install github.com/tomnomnom/anew@latest",
     # v5: Gitleaks added as optional scanner
-    "gitleaks":    "https://github.com/gitleaks/gitleaks/releases  OR  brew install gitleaks",
+    "gitleaks":        "https://github.com/gitleaks/gitleaks/releases  OR  brew install gitleaks",
+    # v6: New tools
+    "SecretFinder.py": "git clone https://github.com/m4ll0k/SecretFinder  (manual path detection)",
+    "subjs":           "go install github.com/lc/subjs@latest",
+    "jsluice":         "go install github.com/BishopFox/jsluice/cmd/jsluice@latest",
+    "jsleak":          "go install github.com/byt3hx/jsleak@latest",
+    "nuclei":          "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
+    "cariddi":         "go install github.com/edoardottt/cariddi/cmd/cariddi@latest",
+    "ffuf":            "go install github.com/ffuf/ffuf/v2@latest",
+    "git-dumper":      "pip install git-dumper  OR  pip3 install git-dumper --break-system-packages",
 }
 
 GAU_PROVIDERS = "wayback,commoncrawl,otx,urlscan"
@@ -278,7 +287,7 @@ def banner() -> None:
    ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {RESET}{DIM}   v5  •  JS Recon & Secret Hunter  •  curl/wget downloader{RESET}
    {DIM}gau + katana + waybackurls + hakrawler + active scrape + brute{RESET}
-   {DIM}Secret scanners: regex + gf + trufflehog + gitleaks + SecretFinder{RESET}
+   {DIM}Scanners: regex  gf  trufflehog  gitleaks  SecretFinder  jsluice  jsleak  nuclei  cariddi{RESET}
 """)
 
 
@@ -336,6 +345,7 @@ def setup_dirs(base: Path) -> dict[str, Path]:
         "secrets": base / "secrets",
         "raw":     base / "secrets" / "raw",
         "logs":    base / "logs",
+        "git":     base / "git_dumps",
     }
     for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)
@@ -564,12 +574,28 @@ def _flip_scheme(url: str) -> Optional[str]:
     return None
 
 
+ALT_EXTENSIONS = [".jsx", ".ts", ".mjs", ".cjs"]
+
+
 def head_ok(url: str, timeout: int = 8) -> bool:
     """
     Probe whether a URL exists and is JavaScript.
     Uses curl --head (fast, no body download).
-    v5: also tries alternate extensions (.jsx, .ts, .mjs) on 404.
+    FIX-3: tries alternate extensions (.jsx, .ts, .mjs, .cjs) on 404.
     """
+    if _head_ok_single(url, timeout):
+        return True
+    # FIX-3: try alternate extensions for .js URLs
+    if url.endswith(".js"):
+        base_url = url[:-3]
+        for ext in ALT_EXTENSIONS:
+            if _head_ok_single(base_url + ext, timeout):
+                return True
+    return False
+
+
+def _head_ok_single(url: str, timeout: int = 8) -> bool:
+    """Check a single URL via HEAD request."""
     if shutil.which("curl"):
         cmd = [
             "curl",
@@ -593,7 +619,8 @@ def head_ok(url: str, timeout: int = 8) -> bool:
                 code, ct = out.rsplit("|||", 1)
                 return (
                     code.strip() == "200"
-                    and ("javascript" in ct or "ecmascript" in ct or url.endswith(".js"))
+                    and ("javascript" in ct or "ecmascript" in ct
+                         or url.endswith((".js", ".jsx", ".ts", ".mjs", ".cjs")))
                 )
         except Exception:
             pass
@@ -769,6 +796,92 @@ def run_hakrawler(url: str, timeout: int = 90) -> list[str]:
         return []
 
 
+def run_subjs(url: str, timeout: int = 60) -> list[str]:
+    """
+    subjs-i verilən URL üzərində işlət.
+    stdout-da hər sətirdə bir JS URL qaytarır.
+    Katana-nın -jc flag-i oxşar işi görür amma subjs daha sürətlidir
+    sadə JS URL toplama üçün.
+    """
+    if not shutil.which("subjs"):
+        return []
+    try:
+        r = subprocess.run(
+            ["subjs"],
+            input=url + "\n",
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return [
+            line.strip()
+            for line in r.stdout.splitlines()
+            if line.strip().startswith("http")
+        ]
+    except Exception:
+        return []
+
+
+def run_cariddi(url: str, raw_dir: Path,
+                timeout: int = 120) -> tuple[list[str], list[Finding]]:
+    """
+    cariddi-ni URL üzərində işlət.
+
+    İki şey qaytarır:
+      1. Tapılan URL-lər (collect_urls pipeline-ına qatılır)
+      2. Birbaşa tapılan secret findings (run_secret_scanning-ə göndərilir)
+
+    Flags:
+        -s       secrets scanning aktiv et
+        -e       endpoint-ləri çıxar
+        -plain   sadə text output (JSON deyil)
+    """
+    if not shutil.which("cariddi"):
+        return [], []
+
+    urls_found:    list[str]     = []
+    secrets_found: list[Finding] = []
+
+    try:
+        r = subprocess.run(
+            ["cariddi", "-s", "-e", "-plain"],
+            input=url + "\n",
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+
+            if line.startswith("[SECRET]"):
+                # Format: [SECRET] <type>: <value> (<url>)
+                secret_part = line[len("[SECRET]"):].strip()
+                if len(secret_part) < 8:
+                    continue
+                if FALSE_POSITIVE_RE.search(secret_part):
+                    continue
+                secrets_found.append({
+                    "tool":    "cariddi",
+                    "type":    "auto",
+                    "url":     url,
+                    "file":    "",
+                    "match":   secret_part[:200],
+                    "line":    "",
+                    "entropy": f"{shannon_entropy(secret_part):.2f}",
+                })
+            elif line.startswith("http"):
+                urls_found.append(line)
+
+    except subprocess.TimeoutExpired:
+        pass
+    except Exception:
+        pass
+
+    return urls_found, secrets_found
+
+
 class ScriptTagParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -823,21 +936,64 @@ def active_html_scrape(live_hosts: list[str], threads: int,
 
 def brute_js_paths(live_hosts: list[str], threads: int,
                    log: logging.Logger) -> list[str]:
+    """
+    Mövcud head_ok() loop-u saxla, ffuf varsa onu istifadə et.
+    ffuf bir host üçün bütün path-ları tək subprocess-də yoxlayır.
+    """
     print(info(f"Brute-force  {len(COMMON_JS_PATHS)} common JS paths …"))
-    tasks = [h.rstrip("/") + p for h in live_hosts for p in COMMON_JS_PATHS]
     found: list[str] = []
-    pb = ProgressBar(len(tasks), "JS path brute")
 
-    with ThreadPoolExecutor(max_workers=min(threads, 60)) as ex:
-        futs = {ex.submit(head_ok, u): u for u in tasks}
-        for fut in as_completed(futs):
-            url = futs[fut]
+    if shutil.which("ffuf"):
+        # ffuf path-ları wordlist faylına yaz
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as wf:
+            wf.write("\n".join(COMMON_JS_PATHS))
+            wl_path = wf.name
+
+        pb = ProgressBar(len(live_hosts), "ffuf JS brute")
+        for host in live_hosts:
             try:
-                if fut.result():
-                    found.append(url)
+                r = subprocess.run(
+                    [
+                        "ffuf",
+                        "-u",  host.rstrip("/") + "FUZZ",
+                        "-w",  wl_path,
+                        "-mc", "200",
+                        "-t",  str(min(threads, 50)),
+                        "-o",  os.devnull,
+                        "-of", "json",
+                        "-s",
+                        "-H", f"User-Agent: {USER_AGENT}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                # ffuf -s ilə sadə text output: hər 200 cavab üçün URL
+                for line in r.stdout.splitlines():
+                    line = line.strip()
+                    if line.startswith("http"):
+                        found.append(line)
             except Exception:
                 pass
             pb.update(1, f"({len(found)} found)")
+
+        Path(wl_path).unlink(missing_ok=True)
+
+    else:
+        # Fallback: mövcud head_ok() loop-u
+        tasks = [h.rstrip("/") + p for h in live_hosts for p in COMMON_JS_PATHS]
+        pb = ProgressBar(len(tasks), "JS path brute")
+        with ThreadPoolExecutor(max_workers=min(threads, 60)) as ex:
+            futs = {ex.submit(head_ok, u): u for u in tasks}
+            for fut in as_completed(futs):
+                url = futs[fut]
+                try:
+                    if fut.result():
+                        found.append(url)
+                except Exception:
+                    pass
+                pb.update(1, f"({len(found)} found)")
 
     log.info("Brute JS paths: %d", len(found))
     return found
@@ -849,7 +1005,7 @@ def collect_urls(live_hosts: list[str], urls_file: Path,
     print(clr("  [2/5]  URL Collection", BOLD))
     print(clr(f"{'━'*60}", DIM))
     print(info(f"Sources: {DIM}gau ({GAU_PROVIDERS})  katana (-jc)  "
-               f"waybackurls  hakrawler  active-HTML{RESET}\n"))
+               f"waybackurls  hakrawler  subjs  cariddi  active-HTML{RESET}\n"))
     log.info("URL collection: %d hosts", len(live_hosts))
 
     all_urls: set[str] = set()
@@ -857,7 +1013,7 @@ def collect_urls(live_hosts: list[str], urls_file: Path,
     tasks = [
         (tool, host)
         for host in live_hosts
-        for tool in ("gau", "katana", "waybackurls", "hakrawler")
+        for tool in ("gau", "katana", "waybackurls", "hakrawler", "subjs")
     ]
     pb = ProgressBar(len(tasks), "Passive sources")
 
@@ -868,6 +1024,7 @@ def collect_urls(live_hosts: list[str], urls_file: Path,
             "katana":      run_katana,
             "waybackurls": run_waybackurls,
             "hakrawler":   run_hakrawler,
+            "subjs":       run_subjs,
         }
         return dispatch[tool](target)
 
@@ -883,6 +1040,29 @@ def collect_urls(live_hosts: list[str], urls_file: Path,
     scripts = active_html_scrape(live_hosts, threads, log)
     all_urls.update(scripts)
     print(ok(f"Active HTML scrape   +{len(scripts):,} script URLs"))
+
+    # ── cariddi crawl + secret scan ──
+    cariddi_all_urls:    list[str]     = []
+    cariddi_all_secrets: list[Finding] = []
+
+    if shutil.which("cariddi"):
+        print(info("cariddi crawl + secret scan …"))
+        with ThreadPoolExecutor(max_workers=min(threads, 10)) as ex:
+            cfuts = {ex.submit(run_cariddi, h, urls_file.parent, 120): h for h in live_hosts}
+            for cfut in as_completed(cfuts):
+                try:
+                    c_urls, c_secrets = cfut.result()
+                    cariddi_all_urls.extend(c_urls)
+                    cariddi_all_secrets.extend(c_secrets)
+                except Exception:
+                    pass
+        all_urls.update(cariddi_all_urls)
+        print(ok(f"cariddi   +{len(cariddi_all_urls):,} URLs  {len(cariddi_all_secrets)} secrets"))
+
+    # Write cariddi secrets for run_secret_scanning to read
+    (urls_file.parent / "cariddi_secrets.json").write_text(
+        json.dumps(cariddi_all_secrets, indent=2)
+    )
 
     result = dedup(sorted(all_urls))
     urls_file.write_text("\n".join(result) + "\n")
@@ -1112,7 +1292,8 @@ def scan_gf(dl_map: dict[str, Path], raw_dir: Path,
                 for line in r.stdout.splitlines():
                     if not line.strip():
                         continue
-                    match_part = line.split(":", 1)[-1] if ":" in line else line
+                    # FIX-2: use ": " separator to correctly extract URL
+                    match_part = line.split(": ", 1)[-1] if ": " in line else line
                     if len(match_part.strip()) < 15:
                         continue
                     if FALSE_POSITIVE_RE.search(match_part):
@@ -1122,9 +1303,9 @@ def scan_gf(dl_map: dict[str, Path], raw_dir: Path,
                     findings.append({
                         "tool":  "gf",
                         "type":  pat,
-                        "url":   line.split(":")[0],
+                        "url":   line.split(": ", 1)[0] if ": " in line else "",
                         "file":  "",
-                        "match": line[:300],
+                        "match": match_part[:300],
                         "line":  "",
                     })
         except Exception:
@@ -1314,6 +1495,295 @@ def scan_secretfinder(dl_map: dict[str, Path], raw_dir: Path,
     return findings
 
 
+# ─── jsluice ────────────────────────────────────────────────────────────────
+
+def scan_jsluice(dl_map: dict[str, Path], raw_dir: Path,
+                 log: logging.Logger) -> list[Finding]:
+    """
+    jsluice-i hər downloaded JS faylı üzərində işlət.
+
+    Komanda:
+        jsluice secrets <filepath>
+
+    Output: hər sətirdə bir JSON object:
+        {"kind": "AWSAccessKey", "data": {"match": "AKIA..."}, "filename": "..."}
+
+    scan_regex() ilə tamamlayıcıdır çünki jsluice kontekst anlayır —
+    məsələn `const API_KEY = "abc123"` kimi assignment-ları tapır.
+    """
+    if not shutil.which("jsluice"):
+        return []
+
+    findings: list[Finding] = []
+
+    for url, filepath in dl_map.items():
+        if not filepath.exists():
+            continue
+        try:
+            r = subprocess.run(
+                ["jsluice", "secrets", str(filepath)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            for line in r.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                # jsluice output strukturu: kind, data{match, ...}, filename, severity
+                kind     = str(obj.get("kind",     "unknown"))
+                data     = obj.get("data",     {})
+                match_v  = str(data.get("match",   data)).strip()[:200]
+                severity = str(obj.get("severity", ""))
+
+                if len(match_v) < 8:
+                    continue
+                if FALSE_POSITIVE_RE.search(match_v):
+                    continue
+                if shannon_entropy(match_v) < 2.8:
+                    continue
+
+                findings.append({
+                    "tool":    "jsluice",
+                    "type":    kind,
+                    "url":     url,
+                    "file":    str(filepath),
+                    "match":   match_v,
+                    "line":    str(obj.get("line", "")),
+                    "entropy": f"{shannon_entropy(match_v):.2f}",
+                    "context": f"severity={severity}",
+                })
+        except subprocess.TimeoutExpired:
+            log.debug("jsluice timeout: %s", filepath)
+        except Exception as exc:
+            log.debug("jsluice error %s: %s", filepath, exc)
+
+    (raw_dir / "jsluice_findings.json").write_text(json.dumps(findings, indent=2))
+    log.info("jsluice: %d findings", len(findings))
+    return findings
+
+
+# ─── jsleak ─────────────────────────────────────────────────────────────────
+
+def scan_jsleak(dl_map: dict[str, Path], raw_dir: Path,
+                log: logging.Logger) -> list[Finding]:
+    """
+    jsleak-i downloaded JS faylları üzərində işlət.
+
+    Komanda (hər fayl üçün):
+        jsleak -f <filepath> -s
+
+    Flags:
+        -s   secrets mode (secret pattern-lər axtarır)
+    """
+    if not shutil.which("jsleak"):
+        return []
+
+    findings: list[Finding] = []
+    raw_output_lines: list[str] = []
+
+    for url, filepath in dl_map.items():
+        if not filepath.exists():
+            continue
+        try:
+            r = subprocess.run(
+                ["jsleak", "-f", str(filepath), "-s"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            for line in r.stdout.splitlines():
+                line = line.strip()
+                if not line or len(line) < 10:
+                    continue
+                if FALSE_POSITIVE_RE.search(line):
+                    continue
+                if shannon_entropy(line) < 2.8:
+                    continue
+
+                raw_output_lines.append(f"{url}: {line}")
+                findings.append({
+                    "tool":    "jsleak",
+                    "type":    "secret",
+                    "url":     url,
+                    "file":    str(filepath),
+                    "match":   line[:200],
+                    "line":    "",
+                    "entropy": f"{shannon_entropy(line):.2f}",
+                })
+        except subprocess.TimeoutExpired:
+            log.debug("jsleak timeout: %s", filepath)
+        except Exception as exc:
+            log.debug("jsleak error %s: %s", filepath, exc)
+
+    (raw_dir / "jsleak_findings.txt").write_text("\n".join(raw_output_lines))
+    log.info("jsleak: %d findings", len(findings))
+    return findings
+
+
+# ─── nuclei ─────────────────────────────────────────────────────────────────
+
+def scan_nuclei(js_urls: list[str], raw_dir: Path,
+                log: logging.Logger) -> list[Finding]:
+    """
+    nuclei-ni JS URL-ləri üzərində exposure template-ləri ilə işlət.
+
+    Bu funksiya downloaded faylları deyil, birbaşa JS URL-lərini tarayır.
+    Çünki nuclei HTTP-üzərindən işləyir və response header-larını da yoxlayır.
+
+    Template qrupu `http/exposures/` bunları əhatə edir:
+        - tokens/  (API keys, OAuth tokens)
+        - files/   (exposed config, .env, backup fayllar)
+        - logs/    (debug output, error pages)
+        - apis/    (swagger, graphql introspection)
+    """
+    if not shutil.which("nuclei"):
+        return []
+    if not js_urls:
+        return []
+
+    # Müvəqqəti URL siyahısı faylı yaz
+    url_list = raw_dir / "_nuclei_urls.txt"
+    url_list.write_text("\n".join(js_urls) + "\n")
+    report_path = raw_dir / "nuclei_findings.json"
+
+    findings: list[Finding] = []
+
+    try:
+        r = subprocess.run(
+            [
+                "nuclei",
+                "-l",            str(url_list),
+                "-t",            "http/exposures/",
+                "-silent",
+                "-no-color",
+                "-json",
+                "-o",            str(report_path),
+                "-rate-limit",   "50",
+                "-concurrency",  "20",
+                "-timeout",      "10",
+                "-no-update-templates",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        log.warning("nuclei: scan timed out")
+        return []
+    except Exception as exc:
+        log.warning("nuclei: %s", exc)
+        return []
+
+    # nuclei JSON output: hər sətirdə bir JSON object (newline-delimited)
+    if not report_path.exists():
+        return []
+
+    try:
+        for line in report_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            template_id = str(obj.get("template-id",   "unknown"))
+            severity    = str(obj.get("info", {}).get("severity", ""))
+            matched_at  = str(obj.get("matched-at",    ""))
+            match_val   = str(obj.get("extracted-results", obj.get("matcher-name", "")))[:200]
+            host        = str(obj.get("host",           matched_at))
+
+            if FALSE_POSITIVE_RE.search(match_val):
+                continue
+
+            findings.append({
+                "tool":    "nuclei",
+                "type":    template_id,
+                "url":     matched_at or host,
+                "file":    "",
+                "match":   match_val or matched_at,
+                "line":    "",
+                "entropy": "",
+                "context": f"severity={severity}",
+            })
+    except Exception as exc:
+        log.warning("nuclei: report parse error: %s", exc)
+
+    log.info("nuclei: %d findings", len(findings))
+    return findings
+
+
+# ─── git-dumper ──────────────────────────────────────────────────────────────
+
+def check_git_exposure(live_hosts: list[str], git_dir: Path,
+                       threads: int, log: logging.Logger) -> list[Path]:
+    """
+    Hər live host üçün /.git/config URL-ini yoxla.
+    Açıq olan varsa git-dumper ilə dump et.
+    Dump edilmiş path-ları qaytarır — gitleaks/trufflehog bu path-ları da tarayacaq.
+    """
+    if not shutil.which("git-dumper"):
+        return []
+
+    print(info("Checking for exposed .git directories …"))
+    git_urls = [h.rstrip("/") + "/.git/config" for h in live_hosts]
+
+    # httpx ilə bütün /.git/config URL-lərini yoxla
+    exposed: list[str] = []
+    with ThreadPoolExecutor(max_workers=min(threads, 30)) as ex:
+        futs = {ex.submit(head_ok, u, 8): u for u in git_urls}
+        for fut in as_completed(futs):
+            url = futs[fut]
+            try:
+                if fut.result():
+                    base_url = url.replace("/.git/config", "")
+                    exposed.append(base_url)
+                    print(warn(f"Exposed .git found: {BOLD}{base_url}{RESET}"))
+            except Exception:
+                pass
+
+    if not exposed:
+        print(ok("No exposed .git directories found"))
+        return []
+
+    print(warn(f"{len(exposed)} exposed .git director{'y' if len(exposed)==1 else 'ies'} found — dumping …"))
+    log.warning("Exposed .git: %s", exposed)
+
+    dump_paths: list[Path] = []
+    for base_url in exposed:
+        # Hər domain üçün ayrıca subdirectory
+        domain_slug = re.sub(r"[^\w\-]", "_", urlparse(base_url).netloc)[:60]
+        dump_path   = git_dir / domain_slug
+        dump_path.mkdir(parents=True, exist_ok=True)
+
+        try:
+            r = subprocess.run(
+                ["git-dumper", base_url, str(dump_path)],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if dump_path.exists() and any(dump_path.iterdir()):
+                dump_paths.append(dump_path)
+                print(ok(f"Dumped: {base_url}  →  {dump_path}"))
+                log.info("git-dumper success: %s → %s", base_url, dump_path)
+            else:
+                print(warn(f"git-dumper: empty result for {base_url}"))
+        except subprocess.TimeoutExpired:
+            log.warning("git-dumper timeout: %s", base_url)
+        except Exception as exc:
+            log.warning("git-dumper error %s: %s", base_url, exc)
+
+    return dump_paths
+
+
 # ─── Dedup + Report ─────────────────────────────────────────────────────────
 
 def dedup_findings(lst: list[Finding]) -> list[Finding]:
@@ -1364,9 +1834,14 @@ def write_report(
     if not high_conf:
         lines += [
             "  No high-confidence secrets found.",
-            "  ─ Check secrets/raw/regex_findings.json for raw regex matches.",
-            "  ─ Check secrets/raw/trufflehog.json for TruffleHog output.",
-            "  ─ Check secrets/raw/gitleaks.json for Gitleaks output.",
+            "  ─ Check secrets/raw/regex_findings.json   for regex scanner output.",
+            "  ─ Check secrets/raw/trufflehog.json        for TruffleHog output.",
+            "  ─ Check secrets/raw/gitleaks.json          for Gitleaks output.",
+            "  ─ Check secrets/raw/jsluice_findings.json  for jsluice output.",
+            "  ─ Check secrets/raw/jsleak_findings.txt    for jsleak output.",
+            "  ─ Check secrets/raw/nuclei_findings.json   for Nuclei exposure output.",
+            "  ─ Check cariddi_secrets.json               for cariddi findings.",
+            "  ─ Check git_dumps/                         for dumped .git repositories.",
             "",
         ]
     else:
@@ -1394,24 +1869,37 @@ def write_report(
 
 def run_secret_scanning(
     dl_map: dict[str, Path],
+    js_urls: list[str],
     dirs: dict[str, Path],
     stats: dict,
     log: logging.Logger,
+    git_dump_paths: list[Path] | None = None,
 ) -> None:
     print(clr(f"\n{'━'*60}", DIM))
     print(clr("  [5/5]  Secret Scanning  (all tools in parallel)", BOLD))
-    print(clr(f"  Scanners: regex  gf  trufflehog  gitleaks  SecretFinder", DIM))
+    print(clr(f"  Scanners: regex  gf  trufflehog  gitleaks  SecretFinder  jsluice  jsleak  nuclei", DIM))
     print(clr(f"{'━'*60}", DIM))
 
     all_findings: list[Finding] = []
 
-    with ThreadPoolExecutor(max_workers=5) as ex:
+    # Gitleaks wrapper: scan downloaded JS + git dumps
+    def _scan_gitleaks_all() -> list[Finding]:
+        results = scan_gitleaks(dirs["dl"], dirs["raw"], log)
+        if git_dump_paths:
+            for dump_path in git_dump_paths:
+                results.extend(scan_gitleaks(dump_path, dirs["raw"], log))
+        return results
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
         futs: dict = {
             ex.submit(scan_regex,        dl_map,     dirs["raw"], log): "regex",
             ex.submit(scan_gf,           dl_map,     dirs["raw"], log): "gf",
             ex.submit(scan_trufflehog,   dirs["dl"], dirs["raw"], log): "trufflehog",
-            ex.submit(scan_gitleaks,     dirs["dl"], dirs["raw"], log): "gitleaks",   # v5
+            ex.submit(_scan_gitleaks_all):                              "gitleaks",
             ex.submit(scan_secretfinder, dl_map,     dirs["raw"], log): "SecretFinder",
+            ex.submit(scan_jsluice,      dl_map,     dirs["raw"], log): "jsluice",
+            ex.submit(scan_jsleak,       dl_map,     dirs["raw"], log): "jsleak",
+            ex.submit(scan_nuclei,       js_urls,    dirs["raw"], log): "nuclei",
         }
         for fut in as_completed(futs):
             tool = futs[fut]
@@ -1423,6 +1911,17 @@ def run_secret_scanning(
             except Exception as exc:
                 log.warning("%s error: %s", tool, exc)
                 print(warn(f"{tool:<16} skipped ({exc})"))
+
+    # Merge cariddi secrets if they exist
+    cariddi_path = dirs["urls"] / "cariddi_secrets.json"
+    if cariddi_path.exists():
+        try:
+            cariddi_data = json.loads(cariddi_path.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(cariddi_data, list):
+                all_findings.extend(cariddi_data)
+                print(f"  {GREEN}✔{RESET}  {'cariddi':<16} {len(cariddi_data):>5} findings (from crawl)")
+        except Exception:
+            pass
 
     write_report(all_findings, dirs["secrets"] / "final_report.txt", stats, log)
 
@@ -1602,8 +2101,11 @@ def main() -> None:
         print(warn("No JS files downloaded successfully."))
         sys.exit(0)
 
+    # ── 4b. Git exposure check ──────────────────────────────────────────────
+    git_dump_paths = check_git_exposure(live, dirs["git"], args.threads, log)
+
     # ── 5. Secret scanning ─────────────────────────────────────────────────
-    run_secret_scanning(dl_map, dirs, stats, log)
+    run_secret_scanning(dl_map, js_custom, dirs, stats, log, git_dump_paths)
 
     # ── Summary ────────────────────────────────────────────────────────────
     insecure_line = f"  {YELLOW}⚠  TLS verification was disabled (--insecure){RESET}\n" if INSECURE else ""

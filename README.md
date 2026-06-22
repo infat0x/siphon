@@ -1,4 +1,4 @@
-# JS Recon & Secret Hunter — v5
+# JS Recon & Secret Hunter — v6
 
 Multi-stage JavaScript reconnaissance and secret scanning tool.
 
@@ -7,12 +7,13 @@ Multi-stage JavaScript reconnaissance and secret scanning tool.
 ```
 subs.txt / --domain
     → httpx (live check)
-    → URL harvest (gau + katana + waybackurls + hakrawler)
+    → URL harvest (gau + katana + waybackurls + hakrawler + subjs + cariddi)
     → active <script> parsing
-    → JS brute-force (common paths)
+    → JS brute-force (ffuf → head_ok fallback, alt extensions)
     → JS filter (exclude libraries)
     → download (curl → wget → urllib fallback)
-    → secret scanning (regex + gf + trufflehog + gitleaks + SecretFinder)
+    → git exposure check (git-dumper)
+    → secret scanning (regex + gf + trufflehog + gitleaks + SecretFinder + jsluice + jsleak + nuclei + cariddi)
 ```
 
 ## Requirements
@@ -35,11 +36,21 @@ go install github.com/tomnomnom/waybackurls@latest
 go install github.com/hakluke/hakrawler@latest
 go install github.com/tomnomnom/anew@latest
 
+# v6 new URL collectors & fuzzers
+go install github.com/lc/subjs@latest
+go install github.com/edoardottt/cariddi/cmd/cariddi@latest
+go install github.com/ffuf/ffuf/v2@latest
+
+# v6 new secret scanners
+go install github.com/BishopFox/jsluice/cmd/jsluice@latest
+go install github.com/byt3hx/jsleak@latest
+go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+
 # TruffleHog
 wget https://github.com/trufflesecurity/trufflehog/releases/download/v3.95.3/trufflehog_3.95.3_linux_amd64.tar.gz
 tar -xzf trufflehog_3.95.3_linux_amd64.tar.gz && mv trufflehog /usr/local/bin/
 
-# Gitleaks (v5 new)
+# Gitleaks
 wget https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz
 tar -xzf gitleaks_8.24.3_linux_x64.tar.gz && mv gitleaks /usr/local/bin/
 
@@ -47,6 +58,9 @@ tar -xzf gitleaks_8.24.3_linux_x64.tar.gz && mv gitleaks /usr/local/bin/
 git clone https://github.com/m4ll0k/SecretFinder.git /opt/SecretFinder
 pip install -r /opt/SecretFinder/requirements.txt --break-system-packages
 ln -s /opt/SecretFinder/SecretFinder.py /usr/local/bin/SecretFinder
+
+# git-dumper (optional)
+pip install git-dumper
 ```
 
 ## Usage
@@ -96,7 +110,8 @@ output/
 ├── live/
 │   └── live.txt                  # Live hosts from httpx
 ├── urls/
-│   └── all_urls.txt              # All collected URLs
+│   ├── all_urls.txt              # All collected URLs
+│   └── cariddi_secrets.json      # Secrets found during cariddi crawl
 ├── js/
 │   ├── js_urls.txt               # All JS URLs
 │   ├── custom_js.txt             # Filtered (no libraries)
@@ -108,7 +123,11 @@ output/
 │       ├── regex_findings.json
 │       ├── gf_*.txt
 │       ├── trufflehog.json
-│       └── gitleaks.json
+│       ├── gitleaks.json
+│       ├── jsluice_findings.json
+│       ├── jsleak_findings.txt
+│       └── nuclei_findings.json
+├── git_dumps/                    # Dumped .git repositories
 └── logs/
     └── run_YYYYMMDD_HHMMSS.log
 ```
@@ -120,8 +139,12 @@ output/
 | regex | Built-in | 35+ patterns, entropy filtering, false-positive suppression |
 | gf | External | aws-keys, jwt, firebase, secrets, s3-buckets, etc. |
 | trufflehog | External | Filesystem scan, JSON output |
-| gitleaks | External | 200+ built-in rules, v5 addition |
+| gitleaks | External | 200+ built-in rules, also scans dumped .git repos |
 | SecretFinder | External | Auto-detected at `/opt/SecretFinder/` or `$PATH` |
+| jsluice | External | AST-based JS secret extraction (context-aware) |
+| jsleak | External | Fast per-file secret/path scanner |
+| nuclei | External | `http/exposures/` templates over live JS URLs |
+| cariddi | External | Crawl + secret scan combined (findings merged) |
 
 ## Downloader Behaviour (v5)
 
@@ -138,8 +161,11 @@ output/
 
 - `--insecure` disables TLS verification across **all** tools (curl, wget, httpx, katana, hakrawler, urllib). Use when target is behind a corporate SSL inspection proxy.
 - SecretFinder is auto-detected at `/opt/SecretFinder/SecretFinder.py`, `~/tools/SecretFinder/`, or `$PATH`.
-- All scanners run in parallel (ThreadPoolExecutor, 5 workers).
+- All scanners run in parallel (ThreadPoolExecutor, 10 workers).
 - Findings are deduplicated by `type|match` before the final report.
+- `ffuf` replaces the head_ok loop for JS brute-forcing when available (much faster).
+- `git-dumper` checks `/.git/config` exposure and dumps accessible repos.
+- `head_ok()` tries `.jsx`, `.ts`, `.mjs`, `.cjs` extensions on 404.
 
 ## License
 
