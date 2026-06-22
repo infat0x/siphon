@@ -192,7 +192,3 @@ Siphon integrates 9+ powerful scanners (including built-in regex, TruffleHog, Gi
 
 - SecretFinder is auto-detected at `/opt/SecretFinder/SecretFinder.py`, `~/tools/SecretFinder/`, or `$PATH`.
 - `head_ok()` tries `.jsx`, `.ts`, `.mjs`, `.cjs` extensions on 404.
-
-## License
-
-MIT
