@@ -1,10 +1,18 @@
 <p align="center">
-  <img src="https://i.imgur.com/EyOx34K.png" alt="Siphon Logo" width="200" style="border-radius: 20px;">
+  <img src="https://i.imgur.com/EyOx34K.png" alt="Siphon Logo" width="400" style="border-radius: 30px;">
 </p>
 
-# Siphon — v6
+<h1 align="center">Siphon — v6</h1>
 
-Multi-stage JavaScript reconnaissance and secret scanning tool.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.8%2B-blue" alt="Python Version">
+  <img src="https://img.shields.io/badge/Go-1.19%2B-blue" alt="Go Version">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+</p>
+
+<p align="center">
+  <b>Multi-stage JavaScript reconnaissance and secret scanning tool.</b>
+</p>
 
 ## Pipeline
 
