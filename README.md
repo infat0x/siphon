@@ -132,7 +132,10 @@ python3 siphon.py -s subs.txt -o output/ --skip-download
 
 ## Output Structure
 
-```
+<details>
+<summary><b>View Directory Structure (Click to expand)</b></summary>
+
+```text
 output/
 ├── live/
 │   └── live.txt                  # Live hosts from httpx
@@ -158,20 +161,11 @@ output/
 └── logs/
     └── run_YYYYMMDD_HHMMSS.log
 ```
+</details>
 
 ## Secret Scanners
 
-| Scanner | Type | Notes |
-|---------|------|-------|
-| regex | Built-in | 35+ patterns, entropy filtering, false-positive suppression |
-| gf | External | aws-keys, jwt, firebase, secrets, s3-buckets, etc. |
-| trufflehog | External | Filesystem scan, JSON output |
-| gitleaks | External | 200+ built-in rules, also scans dumped .git repos |
-| SecretFinder | External | Auto-detected at `/opt/SecretFinder/` or `$PATH` |
-| jsluice | External | AST-based JS secret extraction (context-aware) |
-| jsleak | External | Fast per-file secret/path scanner |
-| nuclei | External | `http/exposures/` templates over live JS URLs |
-| cariddi | External | Crawl + secret scan combined (findings merged) |
+Siphon integrates 9+ powerful scanners (including built-in regex, TruffleHog, Gitleaks, Nuclei, and more) running in parallel to ensure deep secret discovery with automated false-positive suppression.
 
 ## Downloader Behaviour (v5)
 
