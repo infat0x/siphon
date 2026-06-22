@@ -263,8 +263,11 @@ COMMON_JS_PATHS: list[str] = [
     
     # Frameworks (Next, Nuxt, WP, etc)
     "/_next/static/chunks/main.js","/_next/static/chunks/app-pages.js",
-    "/_nuxt/app.js",
+    "/_next/static/chunks/pages/_app.js","/_next/static/chunks/webpack.js",
+    "/_nuxt/app.js", "/_nuxt/entry.js",
     "/wp-content/themes/app.js","/wp-includes/js/api.js",
+    "/build/static/js/main.chunk.js","/build/static/js/2.chunk.js",
+    "/assets/index.js","/assets/vendor.js"
 ]
 
 USER_AGENTS: list[str] = [
@@ -911,10 +914,18 @@ class ScriptTagParser(HTMLParser):
         self.srcs: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
-        if tag.lower() == "script":
+        tag_lower = tag.lower()
+        if tag_lower == "script":
             for k, v in attrs:
                 if k.lower() == "src" and v and not v.startswith("data:"):
                     self.srcs.append(v.strip())
+        elif tag_lower == "link":
+            for k, v in attrs:
+                if k.lower() == "href" and v and not v.startswith("data:"):
+                    val = v.strip()
+                    path = urlparse(val).path.lower()
+                    if path.endswith(".js") or ".js?" in path or ".js#" in path:
+                        self.srcs.append(val)
 
 
 def parse_script_tags(base_url: str, html: str) -> list[str]:
@@ -923,9 +934,19 @@ def parse_script_tags(base_url: str, html: str) -> list[str]:
         parser.feed(html)
     except Exception:
         pass
+
+    # Inline Regex Scraping
+    inline_absolute = re.findall(r"(https?://[a-zA-Z0-9.\-/_]+/[a-zA-Z0-9.\-_]+\.js(?:\?[a-zA-Z0-9=&_\.\-]+)?)", html)
+    inline_relative = re.findall(r"['\"](/[a-zA-Z0-9.\-/_]+\.js(?:\?[a-zA-Z0-9=&_\.\-]+)?)['\"]", html)
+    
+    for match in inline_absolute:
+        parser.srcs.append(match)
+    for match in inline_relative:
+        parser.srcs.append(match)
+
     parsed = urlparse(base_url)
     out: list[str] = []
-    for src in parser.srcs:
+    for src in set(parser.srcs):
         if src.startswith("//"):
             src = f"{parsed.scheme}:{src}"
         elif not src.startswith("http"):
