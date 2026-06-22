@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://i.imgur.com/XpGnKSb.png" alt="Siphon Logo" width="200" style="border-radius: 20px;">
+</p>
+
 # Siphon — v6
 
 Multi-stage JavaScript reconnaissance and secret scanning tool.
