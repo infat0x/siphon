@@ -36,6 +36,16 @@ subs.txt / --domain
 
 ## Tool Installation
 
+We highly recommend using the provided auto-installer script, which handles dependencies, binaries, and `$PATH` configuration:
+
+```bash
+chmod +x install_tools.sh
+./install_tools.sh
+```
+
+<details>
+<summary><b>Manual Installation (Click to expand)</b></summary>
+
 ```bash
 # Required
 go install github.com/projectdiscovery/httpx/cmd/httpx@latest
@@ -74,6 +84,7 @@ ln -s /opt/SecretFinder/SecretFinder.py /usr/local/bin/SecretFinder
 # git-dumper (optional)
 pip install git-dumper
 ```
+</details>
 
 ## Usage
 
