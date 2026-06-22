@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://i.imgur.com/XpGnKSb.png" alt="Siphon Logo" width="200" style="border-radius: 20px;">
+  <img src="https://i.imgur.com/EyOx34K.png" alt="Siphon Logo" width="200" style="border-radius: 20px;">
 </p>
 
 # Siphon — v6
