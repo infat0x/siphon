@@ -268,7 +268,12 @@ func main() {
 		os.Exit(0)
 	}
 
-	dlMap := downloader.DownloadJS(targets, dirs["dl"], *threads)
+	bar := core.NewProgressBar(len(targets), "Downloading")
+	bar.Start()
+
+	dlMap := downloader.DownloadJS(targets, dirs["dl"], *threads, bar)
+	
+	bar.Stop()
 	stats.SetJsDl(len(dlMap))
 	stats.SetDlRate(fmt.Sprintf("%.1f%%", 100.0*float64(len(dlMap))/float64(len(targets))))
 	

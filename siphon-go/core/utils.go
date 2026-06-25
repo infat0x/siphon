@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 // ANSI Colors
@@ -101,4 +103,80 @@ func IsValidJS(content []byte) bool {
 	}
 	head := string(content[:length])
 	return !htmlErrorRe.MatchString(head)
+}
+
+// ProgressBar implementation
+type ProgressBar struct {
+	Total     int32
+	Current   int32
+	StartTime time.Time
+	Message   string
+	stop      chan struct{}
+}
+
+func NewProgressBar(total int, msg string) *ProgressBar {
+	return &ProgressBar{
+		Total:     int32(total),
+		Message:   msg,
+		StartTime: time.Now(),
+		stop:      make(chan struct{}),
+	}
+}
+
+func (p *ProgressBar) Start() {
+	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				p.render()
+			case <-p.stop:
+				p.render()
+				fmt.Println()
+				return
+			}
+		}
+	}()
+}
+
+func (p *ProgressBar) Increment() {
+	atomic.AddInt32(&p.Current, 1)
+}
+
+func (p *ProgressBar) Stop() {
+	close(p.stop)
+}
+
+func (p *ProgressBar) render() {
+	cur := atomic.LoadInt32(&p.Current)
+	tot := atomic.LoadInt32(&p.Total)
+	if tot == 0 {
+		return
+	}
+
+	percent := float64(cur) / float64(tot) * 100.0
+	elapsed := time.Since(p.StartTime).Seconds()
+
+	var timeLeft string
+	if cur > 0 {
+		totalEstimated := elapsed / (float64(cur) / float64(tot))
+		left := totalEstimated - elapsed
+		if left < 0 {
+			left = 0
+		}
+		timeLeft = fmt.Sprintf("%.0fs left", left)
+	} else {
+		timeLeft = "calculating..."
+	}
+
+	barLen := 30
+	filled := int(float64(barLen) * (float64(cur) / float64(tot)))
+	if filled > barLen {
+		filled = barLen
+	}
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled)
+
+	// Use \r to overwrite line, and \033[K to clear to end of line
+	fmt.Printf("\r  %s%s%s %s [%d/%d] %.1f%% • %s \033[K", CYAN, p.Message, RESET, bar, cur, tot, percent, timeLeft)
 }

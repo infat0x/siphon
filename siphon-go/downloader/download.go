@@ -43,7 +43,7 @@ func fetch(client *http.Client, urlStr string) ([]byte, error) {
 	return body, nil
 }
 
-func DownloadJS(urls []string, dlDir string, threads int) map[string]string {
+func DownloadJS(urls []string, dlDir string, threads int, bar *core.ProgressBar) map[string]string {
 	downloaded := make(map[string]string)
 	var mu sync.Mutex
 	seenHashes := make(map[string]struct{})
@@ -67,6 +67,7 @@ func DownloadJS(urls []string, dlDir string, threads int) map[string]string {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			defer bar.Increment()
 
 			var data []byte
 			var err error
