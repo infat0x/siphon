@@ -3,6 +3,7 @@ package core
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"net/url"
 	"regexp"
@@ -30,6 +31,23 @@ func Dedup(slice []string) []string {
 		}
 	}
 	return res
+}
+
+func DedupFindings(lst []Finding) []Finding {
+	seen := make(map[string]struct{})
+	var out []Finding
+	for _, f := range lst {
+		matchPart := f.Match
+		if len(matchPart) > 80 {
+			matchPart = matchPart[:80]
+		}
+		key := fmt.Sprintf("%s|%s", f.Type, matchPart)
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func NormaliseHost(host string) string {

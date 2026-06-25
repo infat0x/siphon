@@ -3,9 +3,14 @@ package scanner
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"siphon-go/core"
 	"strings"
 	"time"
@@ -19,15 +24,13 @@ func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 	return stdout.String(), err
 }
 
-func ScanTrufflehog(dlDir string) []core.Finding {
+func ScanTrufflehog(dlDir string, rawDir string) []core.Finding {
 	var findings []core.Finding
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	out, err := runCmd(ctx, "trufflehog", "filesystem", "--directory", dlDir, "--json", "--no-update")
-	if err != nil && out == "" {
-		return findings
-	}
+	out, _ := runCmd(ctx, "trufflehog", "filesystem", "--directory", dlDir, "--json", "--no-update")
+	os.WriteFile(filepath.Join(rawDir, "trufflehog.json"), []byte(out), 0644)
 
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
@@ -47,16 +50,215 @@ func ScanTrufflehog(dlDir string) []core.Finding {
 	return findings
 }
 
-func ScanGitleaks(dlDir string) []core.Finding {
+func ScanGitleaks(dlDir string, rawDir string) []core.Finding {
 	var findings []core.Finding
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	reportPath := dlDir + "/gitleaks.json"
+	reportPath := filepath.Join(rawDir, "gitleaks.json")
 	_, _ = runCmd(ctx, "gitleaks", "detect", "--source", dlDir, "--no-git", "--report-format", "json", "--report-path", reportPath, "--exit-code", "0", "--log-level", "warn")
 
-	// Read and parse reportPath... (stubbed for brevity, would read the file)
+	data, err := os.ReadFile(reportPath)
+	if err != nil {
+		return findings
+	}
+
+	var results []map[string]interface{}
+	if err := json.Unmarshal(data, &results); err == nil {
+		for _, item := range results {
+			findings = append(findings, core.Finding{
+				Tool:    "gitleaks",
+				Type:    fmt.Sprintf("%v", item["RuleID"]),
+				File:    fmt.Sprintf("%v", item["File"]),
+				Match:   fmt.Sprintf("%v", item["Match"]),
+				Line:    fmt.Sprintf("%v", item["StartLine"]),
+				Entropy: fmt.Sprintf("%.2f", core.ShannonEntropy(fmt.Sprintf("%v", item["Secret"]))),
+			})
+		}
+	}
 	return findings
 }
 
-// Add more stubs for other tools...
+func ScanJsluice(dlMap map[string]string, rawDir string) []core.Finding {
+	var findings []core.Finding
+
+	for url, path := range dlMap {
+		if path == "" || path == "/dev/null" {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		out, _ := runCmd(ctx, "jsluice", "secrets", path)
+		cancel()
+
+		for _, line := range strings.Split(out, "\n") {
+			if line == "" {
+				continue
+			}
+			var obj map[string]interface{}
+			if err := json.Unmarshal([]byte(line), &obj); err == nil {
+				dataMap, _ := obj["data"].(map[string]interface{})
+				findings = append(findings, core.Finding{
+					Tool:  "jsluice",
+					Type:  fmt.Sprintf("%v", obj["kind"]),
+					URL:   url,
+					File:  path,
+					Match: fmt.Sprintf("%v", dataMap["match"]),
+					Line:  fmt.Sprintf("%v", obj["line"]),
+				})
+			}
+		}
+	}
+	return findings
+}
+
+func ScanNuclei(jsUrls []string, rawDir string) []core.Finding {
+	var findings []core.Finding
+	if len(jsUrls) == 0 {
+		return findings
+	}
+
+	urlListPath := filepath.Join(rawDir, "_nuclei_urls.txt")
+	os.WriteFile(urlListPath, []byte(strings.Join(jsUrls, "\n")+"\n"), 0644)
+	reportPath := filepath.Join(rawDir, "nuclei_findings.json")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	_, _ = runCmd(ctx, "nuclei", "-l", urlListPath, "-t", "http/exposures/", "-silent", "-no-color", "-json", "-o", reportPath, "-rate-limit", "50", "-concurrency", "20", "-timeout", "10", "-no-update-templates")
+
+	data, err := os.ReadFile(reportPath)
+	if err != nil {
+		return findings
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" {
+			continue
+		}
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &obj); err == nil {
+			info, _ := obj["info"].(map[string]interface{})
+			findings = append(findings, core.Finding{
+				Tool:    "nuclei",
+				Type:    fmt.Sprintf("%v", obj["template-id"]),
+				URL:     fmt.Sprintf("%v", obj["matched-at"]),
+				Match:   fmt.Sprintf("%v", obj["extracted-results"]),
+				Context: fmt.Sprintf("severity=%v", info["severity"]),
+			})
+		}
+	}
+	return findings
+}
+
+func ScanGf(dlMap map[string]string, rawDir string) []core.Finding {
+	var findings []core.Finding
+	var combined []string
+	for url, path := range dlMap {
+		if path == "" || path == "/dev/null" {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			combined = append(combined, url+": "+line)
+		}
+	}
+
+	patterns := []string{"aws-keys", "base64", "firebase", "json-sec", "jwt", "php-errors", "s3-buckets", "secrets", "servers"}
+	for _, pat := range patterns {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		cmd := exec.CommandContext(ctx, "gf", pat)
+		cmd.Stdin = strings.NewReader(strings.Join(combined, "\n"))
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+		_ = cmd.Run()
+		cancel()
+
+		if stdout.Len() > 0 {
+			os.WriteFile(filepath.Join(rawDir, "gf_"+pat+".txt"), stdout.Bytes(), 0644)
+			for _, line := range strings.Split(stdout.String(), "\n") {
+				if len(strings.TrimSpace(line)) == 0 {
+					continue
+				}
+				parts := strings.SplitN(line, ": ", 2)
+				url := ""
+				match := line
+				if len(parts) == 2 {
+					url = parts[0]
+					match = parts[1]
+				}
+				findings = append(findings, core.Finding{
+					Tool:  "gf",
+					Type:  pat,
+					URL:   url,
+					Match: match,
+				})
+			}
+		}
+	}
+	return findings
+}
+
+func ScanJsleak(dlMap map[string]string, rawDir string) []core.Finding {
+	var findings []core.Finding
+	var rawLines []string
+
+	for url, path := range dlMap {
+		if path == "" || path == "/dev/null" {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		out, _ := runCmd(ctx, "jsleak", "-f", path, "-s")
+		cancel()
+
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimSpace(line)
+			if len(line) < 10 {
+				continue
+			}
+			rawLines = append(rawLines, url+": "+line)
+			findings = append(findings, core.Finding{
+				Tool:    "jsleak",
+				Type:    "secret",
+				URL:     url,
+				File:    path,
+				Match:   line,
+				Entropy: fmt.Sprintf("%.2f", core.ShannonEntropy(line)),
+			})
+		}
+	}
+	os.WriteFile(filepath.Join(rawDir, "jsleak_findings.txt"), []byte(strings.Join(rawLines, "\n")), 0644)
+	return findings
+}
+
+func CheckGitExposure(liveHosts []string, gitDir string, threads int) []string {
+	var dumpPaths []string
+	
+	for _, host := range liveHosts {
+		host = strings.TrimRight(host, "/")
+		url := host + "/.git/config"
+		
+		req, _ := http.NewRequest("HEAD", url, nil)
+		req.Header.Set("User-Agent", "Mozilla/5.0")
+		transport := &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: core.GlobalConfig.Insecure},
+		}
+		client := &http.Client{Transport: transport, Timeout: 8 * time.Second}
+		resp, err := client.Do(req)
+		if err == nil && resp.StatusCode == 200 {
+			domainSlug := regexp.MustCompile(`[^\w\-]`).ReplaceAllString(core.BareDomain(host), "_")
+			dumpPath := filepath.Join(gitDir, domainSlug)
+			os.MkdirAll(dumpPath, 0755)
+			
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			runCmd(ctx, "git-dumper", host, dumpPath)
+			cancel()
+			
+			dumpPaths = append(dumpPaths, dumpPath)
+		}
+	}
+	
+	return dumpPaths
+}
