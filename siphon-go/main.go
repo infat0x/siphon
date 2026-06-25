@@ -30,56 +30,38 @@ func banner() {
 func main() {
 	domain := flag.String("domain", "", "Single domain to scan")
 	subs := flag.String("s", "", "Path to subdomains list")
-	outDir := flag.String("o", "", "Output directory")
+	jsUrl := flag.String("url", "", "Single JS file URL to scan directly")
+	outDir := flag.String("o", "", "Output directory (required)")
 	threads := flag.Int("t", 30, "Concurrent threads")
 	insecure := flag.Bool("insecure", false, "Disable TLS verification")
 	scanAllJs := flag.Bool("scan-all-js", false, "Scan ALL JS files including known libs")
 	skipLiveCheck := flag.Bool("skip-live-check", false, "Skip httpx")
 	skipUrlCollection := flag.Bool("skip-url-collection", false, "Skip URL harvest")
 	skipDownload := flag.Bool("skip-download", false, "Stop after JS extraction")
+	
+	flag.Usage = func() {
+		banner()
+		fmt.Fprintf(os.Stderr, "Description:\n")
+		fmt.Fprintf(os.Stderr, "  Siphon is an advanced JS harvester and secret scanner.\n")
+		fmt.Fprintf(os.Stderr, "  It uses multiple collectors to find hidden assets and scans them with powerful heuristics.\n\n")
+		
+		fmt.Fprintf(os.Stderr, "Usage Examples:\n")
+		fmt.Fprintf(os.Stderr, "  %s -domain example.com -o results\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -s subdomains.txt -o results -t 50\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -url https://example.com/app.js -o results\n\n", os.Args[0])
+		
+		fmt.Fprintf(os.Stderr, "Flags:\n")
+		flag.PrintDefaults()
+	}
+	
 	flag.Parse()
 
-	if *outDir == "" {
-		fmt.Println("Error: -o (output directory) is required")
+	if *outDir == "" || (*domain == "" && *subs == "" && *jsUrl == "") {
+		flag.Usage()
 		os.Exit(1)
 	}
 
 	banner()
-
-	var singleDomain bool
-	var subsList []string
-
-	if *domain != "" {
-		singleDomain = true
-		domainUrl := core.NormaliseHost(*domain)
-		tmpSubs := filepath.Join(*outDir, "_domain_input.txt")
-		os.MkdirAll(*outDir, 0755)
-		os.WriteFile(tmpSubs, []byte(domainUrl+"\n"), 0644)
-		subsList = []string{domainUrl}
-		fmt.Printf("  %s→%s  Mode   : %ssingle-domain%s  →  %s\n", core.CYAN, core.RESET, core.BOLD, core.RESET, domainUrl)
-	} else if *subs != "" {
-		data, err := os.ReadFile(*subs)
-		if err != nil {
-			fmt.Printf("File not found: %s\n", *subs)
-			os.Exit(1)
-		}
-		for _, l := range strings.Split(string(data), "\n") {
-			l = strings.TrimSpace(l)
-			if l != "" {
-				subsList = append(subsList, l)
-			}
-		}
-	} else {
-		fmt.Println("Error: Must provide -domain or -s")
-		os.Exit(1)
-	}
-
-	if len(subsList) == 0 {
-		fmt.Println("Input is empty.")
-		os.Exit(1)
-	}
-
-	fmt.Printf("  %s→%s  %s%d%s host(s) loaded\n", core.CYAN, core.RESET, core.BOLD, len(subsList), core.RESET)
 
 	if *insecure {
 		fmt.Printf("  %s⚠%s  --insecure active — TLS certificate errors will be ignored.\n", core.YELLOW, core.RESET)
@@ -108,114 +90,164 @@ func main() {
 
 	fmt.Printf("  %s→%s  Output root: %s%s%s\n", core.CYAN, core.RESET, core.BOLD, dirs["base"], core.RESET)
 
-	stats := &core.Stats{SingleDomain: singleDomain}
-
-	liveFile := filepath.Join(dirs["live"], "live.txt")
+	var jsAll []string
+	var jsCustom []string
 	var live []string
+	stats := &core.Stats{SingleDomain: *domain != "" || *jsUrl != ""}
 
-	if *skipLiveCheck {
-		if data, err := os.ReadFile(liveFile); err == nil {
+	if *jsUrl != "" {
+		// SINGLE JS URL MODE
+		urlStr := core.NormaliseHost(*jsUrl)
+		fmt.Printf("  %s→%s  Mode   : %ssingle-url%s  →  %s\n", core.CYAN, core.RESET, core.BOLD, core.RESET, urlStr)
+		
+		jsAll = []string{urlStr}
+		jsCustom = []string{urlStr}
+		live = []string{urlStr}
+		
+		stats.SetUrls(1)
+		stats.SetLive(1)
+		stats.SetJsAll(1)
+		stats.SetJsCustom(1)
+
+		os.WriteFile(filepath.Join(dirs["js"], "js_urls.txt"), []byte(urlStr+"\n"), 0644)
+		os.WriteFile(filepath.Join(dirs["js"], "custom_js.txt"), []byte(urlStr+"\n"), 0644)
+		
+	} else {
+		// NORMAL DOMAIN OR SUBS MODE
+		var singleDomain bool
+		var subsList []string
+
+		if *domain != "" {
+			singleDomain = true
+			domainUrl := core.NormaliseHost(*domain)
+			tmpSubs := filepath.Join(*outDir, "_domain_input.txt")
+			os.WriteFile(tmpSubs, []byte(domainUrl+"\n"), 0644)
+			subsList = []string{domainUrl}
+			fmt.Printf("  %s→%s  Mode   : %ssingle-domain%s  →  %s\n", core.CYAN, core.RESET, core.BOLD, core.RESET, domainUrl)
+		} else if *subs != "" {
+			data, err := os.ReadFile(*subs)
+			if err != nil {
+				fmt.Printf("File not found: %s\n", *subs)
+				os.Exit(1)
+			}
 			for _, l := range strings.Split(string(data), "\n") {
 				l = strings.TrimSpace(l)
 				if l != "" {
-					live = append(live, l)
+					subsList = append(subsList, l)
 				}
 			}
+			fmt.Printf("  %s→%s  %s%d%s host(s) loaded\n", core.CYAN, core.RESET, core.BOLD, len(subsList), core.RESET)
 		}
-		fmt.Printf("\n[1/5] Skipped httpx — %d hosts from live.txt\n", len(live))
-	} else if singleDomain {
-		live = []string{core.NormaliseHost(*domain)}
-		os.WriteFile(liveFile, []byte(strings.Join(live, "\n")+"\n"), 0644)
-		fmt.Printf("\n[1/5] Single-domain mode — skipping httpx probe\n")
-	} else {
-		live = scanner.RunHttpx(*subs, liveFile)
-	}
 
-	stats.SetLive(len(live))
-	if len(live) == 0 {
-		fmt.Println("No live hosts found. Exiting.")
-		os.Exit(0)
-	}
+		// 1. Live Hosts
+		liveFile := filepath.Join(dirs["live"], "live.txt")
 
-	urlsFile := filepath.Join(dirs["urls"], "all_urls.txt")
-	var allUrls []string
-
-	if *skipUrlCollection {
-		if data, err := os.ReadFile(urlsFile); err == nil {
-			for _, l := range strings.Split(string(data), "\n") {
-				l = strings.TrimSpace(l)
-				if l != "" {
-					allUrls = append(allUrls, l)
+		if *skipLiveCheck {
+			if data, err := os.ReadFile(liveFile); err == nil {
+				for _, l := range strings.Split(string(data), "\n") {
+					l = strings.TrimSpace(l)
+					if l != "" {
+						live = append(live, l)
+					}
 				}
 			}
+			fmt.Printf("\n[1/5] Skipped httpx — %d hosts from live.txt\n", len(live))
+		} else if singleDomain {
+			live = []string{core.NormaliseHost(*domain)}
+			os.WriteFile(liveFile, []byte(strings.Join(live, "\n")+"\n"), 0644)
+			fmt.Printf("\n[1/5] Single-domain mode — skipping httpx probe\n")
+		} else {
+			live = scanner.RunHttpx(*subs, liveFile)
 		}
-		fmt.Printf("\n[2/5] Skipped collection — %d URLs loaded\n", len(allUrls))
-	} else {
-		fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
-		fmt.Printf("  %s[2/5]  URL Collection%s\n", core.BOLD, core.RESET)
-		fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
 
-		var mu sync.Mutex
-		var wg sync.WaitGroup
-		sem := make(chan struct{}, *threads)
+		stats.SetLive(len(live))
+		if len(live) == 0 {
+			fmt.Println("No live hosts found. Exiting.")
+			os.Exit(0)
+		}
 
-		for _, host := range live {
-			tools := []func(string) []string{
-				collector.RunGau, collector.RunKatana, collector.RunWaybackurls,
-				collector.RunHakrawler, collector.RunSubjs,
+		// 2. URL Collection
+		urlsFile := filepath.Join(dirs["urls"], "all_urls.txt")
+		var allUrls []string
+
+		if *skipUrlCollection {
+			if data, err := os.ReadFile(urlsFile); err == nil {
+				for _, l := range strings.Split(string(data), "\n") {
+					l = strings.TrimSpace(l)
+					if l != "" {
+						allUrls = append(allUrls, l)
+					}
+				}
 			}
-			for _, t := range tools {
-				wg.Add(1)
-				go func(tool func(string) []string, h string) {
-					defer wg.Done()
-					sem <- struct{}{}
-					defer func() { <-sem }()
-					res := tool(h)
-					mu.Lock()
-					allUrls = append(allUrls, res...)
-					mu.Unlock()
-				}(t, host)
+			fmt.Printf("\n[2/5] Skipped collection — %d URLs loaded\n", len(allUrls))
+		} else {
+			fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
+			fmt.Printf("  %s[2/5]  URL Collection%s\n", core.BOLD, core.RESET)
+			fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
+
+			var mu sync.Mutex
+			var wg sync.WaitGroup
+			sem := make(chan struct{}, *threads)
+
+			for _, host := range live {
+				tools := []func(string) []string{
+					collector.RunGau, collector.RunKatana, collector.RunWaybackurls,
+					collector.RunHakrawler, collector.RunSubjs,
+				}
+				for _, t := range tools {
+					wg.Add(1)
+					go func(tool func(string) []string, h string) {
+						defer wg.Done()
+						sem <- struct{}{}
+						defer func() { <-sem }()
+						res := tool(h)
+						mu.Lock()
+						allUrls = append(allUrls, res...)
+						mu.Unlock()
+					}(t, host)
+				}
+			}
+			wg.Wait()
+
+			scripts := collector.ActiveHTMLScrape(live)
+			allUrls = append(allUrls, scripts...)
+
+			for _, host := range live {
+				cUrls, _ := collector.RunCariddi(host)
+				allUrls = append(allUrls, cUrls...)
+			}
+
+			allUrls = core.Dedup(allUrls)
+			os.WriteFile(urlsFile, []byte(strings.Join(allUrls, "\n")+"\n"), 0644)
+			fmt.Printf("  %s✔%s  Total unique URLs    %s%d%s\n", core.GREEN, core.RESET, core.BOLD, len(allUrls), core.RESET)
+		}
+		stats.SetUrls(len(allUrls))
+
+		// 3. JS Extraction & Filter
+		fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
+		fmt.Printf("  %s[3/5]  JS Extraction & Filtering%s\n", core.BOLD, core.RESET)
+		fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
+
+		var jsSet []string
+		for _, u := range allUrls {
+			lu := strings.ToLower(u)
+			if strings.HasSuffix(lu, ".js") || strings.Contains(lu, ".js?") || strings.Contains(lu, ".js#") {
+				jsSet = append(jsSet, u)
 			}
 		}
-		wg.Wait()
 
-		scripts := collector.ActiveHTMLScrape(live)
-		allUrls = append(allUrls, scripts...)
+		bruteUrls := collector.BruteJSPaths(live)
+		jsSet = append(jsSet, bruteUrls...)
 
-		for _, host := range live {
-			cUrls, _ := collector.RunCariddi(host)
-			allUrls = append(allUrls, cUrls...)
-		}
+		jsAll = core.Dedup(jsSet)
+		jsCustom = downloader.FilterJS(jsAll)
 
-		allUrls = core.Dedup(allUrls)
-		os.WriteFile(urlsFile, []byte(strings.Join(allUrls, "\n")+"\n"), 0644)
-		fmt.Printf("  %s✔%s  Total unique URLs    %s%d%s\n", core.GREEN, core.RESET, core.BOLD, len(allUrls), core.RESET)
-	}
-	stats.SetUrls(len(allUrls))
+		os.WriteFile(filepath.Join(dirs["js"], "js_urls.txt"), []byte(strings.Join(jsAll, "\n")+"\n"), 0644)
+		os.WriteFile(filepath.Join(dirs["js"], "custom_js.txt"), []byte(strings.Join(jsCustom, "\n")+"\n"), 0644)
 
-	fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
-	fmt.Printf("  %s[3/5]  JS Extraction & Filtering%s\n", core.BOLD, core.RESET)
-	fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
-
-	var jsSet []string
-	for _, u := range allUrls {
-		lu := strings.ToLower(u)
-		if strings.HasSuffix(lu, ".js") || strings.Contains(lu, ".js?") || strings.Contains(lu, ".js#") {
-			jsSet = append(jsSet, u)
-		}
-	}
-
-	bruteUrls := collector.BruteJSPaths(live)
-	jsSet = append(jsSet, bruteUrls...)
-
-	jsAll := core.Dedup(jsSet)
-	jsCustom := downloader.FilterJS(jsAll)
-
-	os.WriteFile(filepath.Join(dirs["js"], "js_urls.txt"), []byte(strings.Join(jsAll, "\n")+"\n"), 0644)
-	os.WriteFile(filepath.Join(dirs["js"], "custom_js.txt"), []byte(strings.Join(jsCustom, "\n")+"\n"), 0644)
-
-	stats.SetJsAll(len(jsAll))
-	stats.SetJsCustom(len(jsCustom))
+		stats.SetJsAll(len(jsAll))
+		stats.SetJsCustom(len(jsCustom))
+	} // end else mode
 
 	if *skipDownload {
 		fmt.Println("Stopping after JS extraction.")
