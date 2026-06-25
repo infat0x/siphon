@@ -1,5 +1,7 @@
 package scanner
 
+import "strings"
+
 var FalsePositiveRe = `(?i)(application/(json|xml|javascript|x-www-form-urlencoded)|text/(html|plain|xml|javascript)|image/(png|jpeg|gif|svg\+xml)|charset|utf-8|content-type|border-[a-z]+|background-[a-z]+|font-[a-z]+|box-shadow|text-align|margin-[a-z]+|padding-[a-z]+|display:\s*(none|block|inline)|position:\s*(absolute|relative)|index\.js|main\.js|vendor\.js|app\.js|bundle\.js|/api/v\d+/|/oauth/token|/auth/login|/users/|/products/|/api/public|jquery|bootstrap|angular|react|vue|moment|lodash|localhost|127\.0\.0\.1)`
 
 var SecretPatterns = map[string]string{
