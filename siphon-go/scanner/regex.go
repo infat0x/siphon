@@ -89,14 +89,13 @@ func ScanRegex(dlMap map[string]string) []core.Finding {
 		for _, m := range keywordMatches {
 			// m[0:2] is full match
 			// m[2:4] is keyword name group
-			// m[4:6] is quote char group
-			// m[6:8] is the actual value group
-			if len(m) < 8 {
+			// m[4:6] is the actual value group
+			if len(m) < 6 {
 				continue
 			}
 
 			keyName := content[m[2]:m[3]]
-			secretVal := content[m[6]:m[7]]
+			secretVal := content[m[4]:m[5]]
 
 			if len(secretVal) < 4 || falsePosRe.MatchString(secretVal) {
 				continue

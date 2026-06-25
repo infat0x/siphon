@@ -110,7 +110,5 @@ var BankingKeywordList = []string{
 }
 
 func GetBankingKeywordRegex() string {
-	// Optimizes to: (?i)\b(username|password|...)\b\s*[:=]\s*(['"])([^'"]{5,50})\2
-	// This will find assignments to these keys.
-	return `(?i)\b(` + strings.Join(BankingKeywordList, "|") + `)\b\s*[:=]\s*(['"])([^'"]{4,80})\2`
+	return `(?i)\b(` + strings.Join(BankingKeywordList, "|") + `)\b\s*[:=]\s*['"]([^'"]{4,80})['"]`
 }
