@@ -17,6 +17,9 @@ func ScanRegex(dlMap map[string]string) []core.Finding {
 		compiled[name] = regexp.MustCompile(pat)
 	}
 
+	keywordReStr := GetBankingKeywordRegex()
+	keywordRe := regexp.MustCompile(keywordReStr)
+
 	for url, filepath := range dlMap {
 		if filepath == "" || filepath == "/dev/null" {
 			continue
@@ -27,6 +30,7 @@ func ScanRegex(dlMap map[string]string) []core.Finding {
 		}
 		content := string(data)
 
+		// 1. Scan standard and extended regex patterns
 		for name, rx := range compiled {
 			minEntropy := DefaultEntropy
 			if val, ok := PatternEntropy[name]; ok {
@@ -78,6 +82,44 @@ func ScanRegex(dlMap map[string]string) []core.Finding {
 					Line:    fmt.Sprintf("%d", lineNum),
 				})
 			}
+		}
+
+		// 2. Scan banking keywords assignments
+		keywordMatches := keywordRe.FindAllStringSubmatchIndex(content, -1)
+		for _, m := range keywordMatches {
+			// m[0:2] is full match
+			// m[2:4] is keyword name group
+			// m[4:6] is quote char group
+			// m[6:8] is the actual value group
+			if len(m) < 8 {
+				continue
+			}
+
+			keyName := content[m[2]:m[3]]
+			secretVal := content[m[6]:m[7]]
+
+			if len(secretVal) < 4 || falsePosRe.MatchString(secretVal) {
+				continue
+			}
+
+			entropy := core.ShannonEntropy(secretVal)
+			if entropy < 2.5 { 
+				continue
+			}
+
+			lineNum := strings.Count(content[:m[0]], "\n") + 1
+			fullSnippet := content[m[0]:m[1]]
+
+			findings = append(findings, core.Finding{
+				Tool:    "regex-keyword",
+				Type:    "Banking Keyword Assignment (" + keyName + ")",
+				URL:     url,
+				Entropy: fmt.Sprintf("%.2f", entropy),
+				File:    filepath,
+				Match:   fullSnippet,
+				Context: fullSnippet,
+				Line:    fmt.Sprintf("%d", lineNum),
+			})
 		}
 	}
 	return findings
