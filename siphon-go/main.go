@@ -150,10 +150,11 @@ func main() {
 		}
 
 		// 1. Live Hosts
-		spinHost := core.StartSpinner("1. Live Host Detection")
+		var pbHost *pterm.ProgressbarPrinter
 		liveFile := filepath.Join(dirs["live"], "live.txt")
 
 		if *skipLiveCheck {
+			pbHost = core.StartProgressBar(1, "1. Live Host Detection")
 			if data, err := os.ReadFile(liveFile); err == nil {
 				for _, l := range strings.Split(string(data), "\n") {
 					l = strings.TrimSpace(l)
@@ -163,24 +164,29 @@ func main() {
 				}
 			}
 			core.Logf("\n[1/5] Skipped httpx — %d hosts from live.txt\n", len(live))
+			pbHost.Add(1)
 		} else if singleDomain {
+			pbHost = core.StartProgressBar(1, "1. Live Host Detection")
 			live = []string{core.NormaliseHost(*domain)}
 			os.WriteFile(liveFile, []byte(strings.Join(live, "\n")+"\n"), 0644)
 			core.Logf("\n[1/5] Single-domain mode — skipping httpx probe\n")
+			pbHost.Add(1)
 		} else {
+			pbHost = core.StartProgressBar(1, "1. Live Host Detection (Running httpx)")
 			live = scanner.RunHttpx(*subs, liveFile)
+			pbHost.Add(1)
 		}
 
 		stats.SetLive(len(live))
 		if len(live) == 0 {
-			spinHost.Fail("No live hosts found")
+			core.Logln("No live hosts found")
 			os.Exit(0)
 		}
 		
-		spinHost.Success(fmt.Sprintf("1. Live Host Detection [%d hosts]", len(live)))
+		core.Logf("  %s✔%s  1. Live Host Detection [%d hosts]\n", core.GREEN, core.RESET, len(live))
 
 		// 2. URL Collection
-		spinUrl := core.StartSpinner("2. URL Collection")
+		pbUrl := core.StartProgressBar(7, "2. URL Collection (Passive+Active)")
 		urlsFile := filepath.Join(dirs["urls"], "all_urls.txt")
 		var allUrls []string
 
@@ -193,6 +199,7 @@ func main() {
 					}
 				}
 			}
+			pbUrl.Add(7)
 			core.Logf("\n[2/5] Skipped collection — %d URLs loaded\n", len(allUrls))
 		} else {
 			var mu sync.Mutex
@@ -217,6 +224,9 @@ func main() {
 					mu.Lock()
 					allUrls = append(allUrls, res...)
 					mu.Unlock()
+					if pbUrl != nil {
+						pbUrl.Add(1)
+					}
 				}(t)
 			}
 
@@ -227,6 +237,9 @@ func main() {
 				mu.Lock()
 				allUrls = append(allUrls, res...)
 				mu.Unlock()
+				if pbUrl != nil {
+					pbUrl.Add(1)
+				}
 			}()
 
 			wg.Wait()
@@ -236,10 +249,10 @@ func main() {
 			core.Logf("  %s✔%s  Total unique URLs    %s%d%s\n", core.GREEN, core.RESET, core.BOLD, len(allUrls), core.RESET)
 		}
 		stats.SetUrls(len(allUrls))
-		spinUrl.Success(fmt.Sprintf("2. URL Collection [%d URLs]", len(allUrls)))
+		core.Logf("  %s✔%s  2. URL Collection [%d URLs]\n", core.GREEN, core.RESET, len(allUrls))
 
 		// 3. JS Extraction & Filter
-		spinExtract := core.StartSpinner("3. JS Extraction")
+		pbExtract := core.StartProgressBar(2, "3. JS Extraction")
 		
 		var jsSet []string
 		for _, u := range allUrls {
@@ -248,9 +261,11 @@ func main() {
 				jsSet = append(jsSet, u)
 			}
 		}
+		pbExtract.Add(1)
 
 		bruteUrls := collector.BruteJSPaths(live)
 		jsSet = append(jsSet, bruteUrls...)
+		pbExtract.Add(1)
 
 		jsAll = core.Dedup(jsSet)
 		jsCustom = downloader.FilterJS(jsAll)
@@ -260,7 +275,7 @@ func main() {
 
 		stats.SetJsAll(len(jsAll))
 		stats.SetJsCustom(len(jsCustom))
-		spinExtract.Success(fmt.Sprintf("3. JS Extraction [%d custom, %d all]", len(jsCustom), len(jsAll)))
+		core.Logf("  %s✔%s  3. JS Extraction [%d custom, %d all]\n", core.GREEN, core.RESET, len(jsCustom), len(jsAll))
 	} // end else mode
 
 	if *skipDownload {
@@ -287,7 +302,7 @@ func main() {
 	
 	scanner.CheckGitExposure(live, dirs["git"], *threads)
 
-	spinScan := core.StartSpinner("5. Secret Scanning")
+	pbScan := core.StartProgressBar(6, "5. Secret Scanning")
 
 	var allFindings []core.Finding
 	var mu sync.Mutex
@@ -301,6 +316,9 @@ func main() {
 			mu.Lock()
 			allFindings = append(allFindings, res...)
 			mu.Unlock()
+			if pbScan != nil {
+				pbScan.Add(1)
+			}
 			core.Logf("  %s✔%s  %-16s %5d findings\n", core.GREEN, core.RESET, name, len(res))
 		}()
 	}
@@ -314,7 +332,7 @@ func main() {
 	runScanner("nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"]) })
 
 	wg.Wait()
-	spinScan.Success(fmt.Sprintf("5. Secret Scanning [%d total findings]", len(allFindings)))
+	core.Logf("  %s✔%s  5. Secret Scanning [%d total findings]\n", core.GREEN, core.RESET, len(allFindings))
 
 	scanner.WriteReport(allFindings, filepath.Join(dirs["secrets"], "final_report.txt"), stats)
 }
