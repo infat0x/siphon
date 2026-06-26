@@ -2,6 +2,7 @@ package collector
 
 import (
 	"crypto/tls"
+	"io"
 	"net/http"
 	"siphon-go/core"
 	"strings"
@@ -88,7 +89,8 @@ func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 				sem <- struct{}{}
 				defer func() { <-sem }()
 
-				req, err := http.NewRequest("HEAD", urlStr, nil)
+				// Use GET instead of HEAD so we can read body for HTML if needed
+				req, err := http.NewRequest("GET", urlStr, nil)
 				if err != nil {
 					return
 				}
@@ -102,6 +104,17 @@ func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 							mu.Lock()
 							found = append(found, urlStr)
 							mu.Unlock()
+						} else if strings.Contains(ct, "text/html") {
+							bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
+							if err == nil && len(bodyBytes) > 0 {
+								htmlStr := string(bodyBytes)
+								srcs := parseScriptTags(urlStr, htmlStr)
+								if len(srcs) > 0 {
+									mu.Lock()
+									found = append(found, srcs...)
+									mu.Unlock()
+								}
+							}
 						}
 					}
 				}
