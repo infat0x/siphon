@@ -37,9 +37,14 @@ var CommonJSPaths = []string{
 	"/assets/index.js", "/assets/vendor.js",
 }
 
-func BruteJSPaths(liveHosts []string) []string {
+func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 	var found []string
 	var mu sync.Mutex
+
+	if pathFilter != "" && !strings.HasPrefix(pathFilter, "/") {
+		pathFilter = "/" + pathFilter
+	}
+	pathFilter = strings.TrimRight(pathFilter, "/")
 
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: core.GlobalConfig.Insecure},
@@ -61,6 +66,7 @@ func BruteJSPaths(liveHosts []string) []string {
 	for _, host := range liveHosts {
 		host = strings.TrimRight(host, "/")
 		for _, path := range CommonJSPaths {
+			fullPath := pathFilter + path
 			wg.Add(1)
 			go func(urlStr string) {
 				defer wg.Done()
@@ -84,7 +90,7 @@ func BruteJSPaths(liveHosts []string) []string {
 						}
 					}
 				}
-			}(host + path)
+			}(host + fullPath)
 		}
 	}
 

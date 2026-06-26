@@ -38,6 +38,7 @@ func main() {
 	skipLiveCheck := flag.Bool("skip-live-check", false, "Skip httpx")
 	skipUrlCollection := flag.Bool("skip-url-collection", false, "Skip URL harvest")
 	skipDownload := flag.Bool("skip-download", false, "Stop after JS extraction")
+	pathFilter := flag.String("path", "", "Filter JS URLs by specific path (e.g. /admin/)")
 	
 	flag.Usage = func() {
 		banner()
@@ -258,12 +259,15 @@ func main() {
 		for _, u := range allUrls {
 			lu := strings.ToLower(u)
 			if strings.HasSuffix(lu, ".js") || strings.Contains(lu, ".js?") || strings.Contains(lu, ".js#") {
+				if *pathFilter != "" && !strings.Contains(lu, strings.ToLower(*pathFilter)) {
+					continue
+				}
 				jsSet = append(jsSet, u)
 			}
 		}
 		pbExtract.Add(1)
 
-		bruteUrls := collector.BruteJSPaths(live)
+		bruteUrls := collector.BruteJSPaths(live, *pathFilter)
 		jsSet = append(jsSet, bruteUrls...)
 		pbExtract.Add(1)
 
