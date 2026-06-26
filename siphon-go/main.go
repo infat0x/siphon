@@ -11,6 +11,8 @@ import (
 	"siphon-go/scanner"
 	"strings"
 	"sync"
+
+	"github.com/pterm/pterm"
 )
 
 func banner() {
