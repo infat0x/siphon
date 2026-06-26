@@ -11,12 +11,9 @@ import (
 )
 
 func RunHttpx(subsFile string, liveFile string) []string {
-	fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
-	fmt.Printf("  %s[1/5]  Live Host Detection  →  httpx%s\n", core.BOLD, core.RESET)
 	if core.GlobalConfig.Insecure {
-		fmt.Printf("         %s⚠  TLS verification disabled (--insecure)%s\n", core.YELLOW, core.RESET)
+		core.Logf("         %s⚠  TLS verification disabled (--insecure)%s\n", core.YELLOW, core.RESET)
 	}
-	fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -61,6 +58,5 @@ func RunHttpx(subsFile string, liveFile string) []string {
 		os.WriteFile(liveFile, []byte(strings.Join(live, "\n")+"\n"), 0644)
 	}
 
-	fmt.Printf("  %s✔%s  %s%d%s live hosts  →  %s%s%s\n", core.GREEN, core.RESET, core.BOLD, len(live), core.RESET, core.DIM, liveFile, core.RESET)
 	return live
 }

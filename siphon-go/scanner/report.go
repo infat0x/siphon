@@ -102,6 +102,6 @@ func WriteReport(allFindings []core.Finding, reportFile string, stats *core.Stat
 	}
 
 	os.WriteFile(reportFile, []byte(strings.Join(lines, "\n")), 0644)
-	fmt.Printf("  %s✔%s  Report           →  %s%s%s\n", core.GREEN, core.RESET, core.BOLD, reportFile, core.RESET)
-	fmt.Printf("  %s✔%s  High-confidence findings : %s%d%s\n", core.GREEN, core.RESET, core.BOLD, len(highConf), core.RESET)
+	core.Logf("  %s✔%s  Report           →  %s%s%s\n", core.GREEN, core.RESET, core.BOLD, reportFile, core.RESET)
+	core.Logf("  %s✔%s  High-confidence findings : %s%d%s\n", core.GREEN, core.RESET, core.BOLD, len(highConf), core.RESET)
 }

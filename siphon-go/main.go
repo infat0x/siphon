@@ -61,10 +61,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	core.InitUI()
+	core.UI.Start()
+	defer core.UI.Stop()
+
 	banner()
 
 	if *insecure {
-		fmt.Printf("  %s⚠%s  --insecure active — TLS certificate errors will be ignored.\n", core.YELLOW, core.RESET)
+		core.Logf("  %s⚠%s  --insecure active — TLS certificate errors will be ignored.\n", core.YELLOW, core.RESET)
 	}
 
 	core.GlobalConfig = core.Config{
@@ -88,7 +92,7 @@ func main() {
 		os.MkdirAll(d, 0755)
 	}
 
-	fmt.Printf("  %s→%s  Output root: %s%s%s\n", core.CYAN, core.RESET, core.BOLD, dirs["base"], core.RESET)
+	core.Logf("  %s→%s  Output root: %s%s%s\n", core.CYAN, core.RESET, core.BOLD, dirs["base"], core.RESET)
 
 	var jsAll []string
 	var jsCustom []string
@@ -98,7 +102,7 @@ func main() {
 	if *jsUrl != "" {
 		// SINGLE JS URL MODE
 		urlStr := core.NormaliseHost(*jsUrl)
-		fmt.Printf("  %s→%s  Mode   : %ssingle-url%s  →  %s\n", core.CYAN, core.RESET, core.BOLD, core.RESET, urlStr)
+		core.Logf("  %s→%s  Mode   : %ssingle-url%s  →  %s\n", core.CYAN, core.RESET, core.BOLD, core.RESET, urlStr)
 		
 		jsAll = []string{urlStr}
 		jsCustom = []string{urlStr}
@@ -123,11 +127,11 @@ func main() {
 			tmpSubs := filepath.Join(*outDir, "_domain_input.txt")
 			os.WriteFile(tmpSubs, []byte(domainUrl+"\n"), 0644)
 			subsList = []string{domainUrl}
-			fmt.Printf("  %s→%s  Mode   : %ssingle-domain%s  →  %s\n", core.CYAN, core.RESET, core.BOLD, core.RESET, domainUrl)
+			core.Logf("  %s→%s  Mode   : %ssingle-domain%s  →  %s\n", core.CYAN, core.RESET, core.BOLD, core.RESET, domainUrl)
 		} else if *subs != "" {
 			data, err := os.ReadFile(*subs)
 			if err != nil {
-				fmt.Printf("File not found: %s\n", *subs)
+				core.Logf("File not found: %s\n", *subs)
 				os.Exit(1)
 			}
 			for _, l := range strings.Split(string(data), "\n") {
@@ -136,10 +140,11 @@ func main() {
 					subsList = append(subsList, l)
 				}
 			}
-			fmt.Printf("  %s→%s  %s%d%s host(s) loaded\n", core.CYAN, core.RESET, core.BOLD, len(subsList), core.RESET)
+			core.Logf("  %s→%s  %s%d%s host(s) loaded\n", core.CYAN, core.RESET, core.BOLD, len(subsList), core.RESET)
 		}
 
 		// 1. Live Hosts
+		core.UI.UpdateStage(0, core.StageRunning, "")
 		liveFile := filepath.Join(dirs["live"], "live.txt")
 
 		if *skipLiveCheck {
@@ -151,22 +156,25 @@ func main() {
 					}
 				}
 			}
-			fmt.Printf("\n[1/5] Skipped httpx — %d hosts from live.txt\n", len(live))
+			core.Logf("\n[1/5] Skipped httpx — %d hosts from live.txt\n", len(live))
 		} else if singleDomain {
 			live = []string{core.NormaliseHost(*domain)}
 			os.WriteFile(liveFile, []byte(strings.Join(live, "\n")+"\n"), 0644)
-			fmt.Printf("\n[1/5] Single-domain mode — skipping httpx probe\n")
+			core.Logf("\n[1/5] Single-domain mode — skipping httpx probe\n")
 		} else {
 			live = scanner.RunHttpx(*subs, liveFile)
 		}
 
 		stats.SetLive(len(live))
 		if len(live) == 0 {
-			fmt.Println("No live hosts found. Exiting.")
+			core.Logln("No live hosts found. Exiting.")
 			os.Exit(0)
 		}
+		
+		core.UI.UpdateStage(0, core.StageDone, fmt.Sprintf("%d hosts", len(live)))
 
 		// 2. URL Collection
+		core.UI.UpdateStage(1, core.StageRunning, "")
 		urlsFile := filepath.Join(dirs["urls"], "all_urls.txt")
 		var allUrls []string
 
@@ -179,12 +187,8 @@ func main() {
 					}
 				}
 			}
-			fmt.Printf("\n[2/5] Skipped collection — %d URLs loaded\n", len(allUrls))
+			core.Logf("\n[2/5] Skipped collection — %d URLs loaded\n", len(allUrls))
 		} else {
-			fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
-			fmt.Printf("  %s[2/5]  URL Collection%s\n", core.BOLD, core.RESET)
-			fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
-
 			var mu sync.Mutex
 			var wg sync.WaitGroup
 			sem := make(chan struct{}, *threads)
@@ -219,15 +223,14 @@ func main() {
 
 			allUrls = core.Dedup(allUrls)
 			os.WriteFile(urlsFile, []byte(strings.Join(allUrls, "\n")+"\n"), 0644)
-			fmt.Printf("  %s✔%s  Total unique URLs    %s%d%s\n", core.GREEN, core.RESET, core.BOLD, len(allUrls), core.RESET)
+			core.Logf("  %s✔%s  Total unique URLs    %s%d%s\n", core.GREEN, core.RESET, core.BOLD, len(allUrls), core.RESET)
 		}
 		stats.SetUrls(len(allUrls))
+		core.UI.UpdateStage(1, core.StageDone, fmt.Sprintf("%d URLs", len(allUrls)))
 
 		// 3. JS Extraction & Filter
-		fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
-		fmt.Printf("  %s[3/5]  JS Extraction & Filtering%s\n", core.BOLD, core.RESET)
-		fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
-
+		core.UI.UpdateStage(2, core.StageRunning, "")
+		
 		var jsSet []string
 		for _, u := range allUrls {
 			lu := strings.ToLower(u)
@@ -247,16 +250,15 @@ func main() {
 
 		stats.SetJsAll(len(jsAll))
 		stats.SetJsCustom(len(jsCustom))
+		core.UI.UpdateStage(2, core.StageDone, fmt.Sprintf("%d custom, %d all", len(jsCustom), len(jsAll)))
 	} // end else mode
 
 	if *skipDownload {
-		fmt.Println("Stopping after JS extraction.")
+		core.Logln("Stopping after JS extraction.")
 		os.Exit(0)
 	}
 
-	fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
-	fmt.Printf("  %s[4/5]  Downloading JS Files  →  disk%s\n", core.BOLD, core.RESET)
-	fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
+	core.UI.UpdateStage(3, core.StageRunning, "")
 
 	targets := jsCustom
 	if *scanAllJs {
@@ -264,30 +266,27 @@ func main() {
 	}
 
 	if len(targets) == 0 {
-		fmt.Println("No JS targets.")
+		core.Logln("No JS targets.")
 		os.Exit(0)
 	}
 
-	bar := core.NewProgressBar(len(targets), "Downloading")
-	bar.Start()
-
-	dlMap := downloader.DownloadJS(targets, dirs["dl"], *threads, bar)
+	dlMap := downloader.DownloadJS(targets, dirs["dl"], *threads, nil)
 	
-	bar.Stop()
 	stats.SetJsDl(len(dlMap))
 	stats.SetDlRate(fmt.Sprintf("%.1f%%", 100.0*float64(len(dlMap))/float64(len(targets))))
 	
-	fmt.Printf("  %s✔%s  Downloaded : %s%d%s/%d\n", core.GREEN, core.RESET, core.BOLD, len(dlMap), core.RESET, len(targets))
+	core.UI.UpdateStage(3, core.StageDone, fmt.Sprintf("%d files", len(dlMap)))
 
 	scanner.CheckGitExposure(live, dirs["git"], *threads)
 
-	fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
-	fmt.Printf("  %s[5/5]  Secret Scanning  (all tools in parallel)%s\n", core.BOLD, core.RESET)
-	fmt.Printf("%s\n", core.DIM+strings.Repeat("━", 60)+core.RESET)
+	core.UI.UpdateStage(4, core.StageRunning, "")
+	core.UI.UpdateProgress(4, 0, 7)
 
 	var allFindings []core.Finding
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+
+	var completedScanners int
 
 	runScanner := func(name string, f func() []core.Finding) {
 		wg.Add(1)
@@ -296,8 +295,10 @@ func main() {
 			res := f()
 			mu.Lock()
 			allFindings = append(allFindings, res...)
+			completedScanners++
+			core.UI.UpdateProgress(4, completedScanners, 7)
 			mu.Unlock()
-			fmt.Printf("  %s✔%s  %-16s %5d findings\n", core.GREEN, core.RESET, name, len(res))
+			core.Logf("  %s✔%s  %-16s %5d findings\n", core.GREEN, core.RESET, name, len(res))
 		}()
 	}
 
@@ -310,6 +311,7 @@ func main() {
 	runScanner("nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"]) })
 
 	wg.Wait()
+	core.UI.UpdateStage(4, core.StageDone, fmt.Sprintf("%d total findings", len(allFindings)))
 
 	scanner.WriteReport(allFindings, filepath.Join(dirs["secrets"], "final_report.txt"), stats)
 }
