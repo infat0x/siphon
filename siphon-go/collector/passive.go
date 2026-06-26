@@ -3,7 +3,6 @@ package collector
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"siphon-go/core"
