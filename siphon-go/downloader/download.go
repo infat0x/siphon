@@ -1,7 +1,9 @@
 package downloader
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +12,8 @@ import (
 	"siphon-go/core"
 	"sync"
 	"time"
+
+	"github.com/pterm/pterm"
 )
 
 var userAgents = []string{
@@ -18,32 +22,71 @@ var userAgents = []string{
 	"Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
 }
 
-func fetch(client *http.Client, urlStr string) ([]byte, error) {
+func attemptDownload(client *http.Client, urlStr, dlDir string, seenHashes map[string]struct{}, mu *sync.Mutex) (string, error) {
 	req, err := http.NewRequest("GET", urlStr, nil)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	req.Header.Set("User-Agent", userAgents[time.Now().UnixNano()%int64(len(userAgents))])
 	req.Header.Set("Accept", "*/*")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status code: %d", resp.StatusCode)
+		return "", fmt.Errorf("status code: %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 15*1024*1024))
-	if err != nil {
-		return nil, err
+	head := make([]byte, 512)
+	n, err := io.ReadFull(resp.Body, head)
+	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+		return "", err
 	}
-	return body, nil
+
+	if n < 50 || !core.IsValidJS(head[:n]) {
+		return "", fmt.Errorf("invalid JS or too small")
+	}
+
+	uid := core.SHA256([]byte(urlStr))[:6]
+	tempFpath := filepath.Join(dlDir, fmt.Sprintf("%s_temp.js", uid))
+	out, err := os.Create(tempFpath)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+
+	hasher := sha256.New()
+	hasher.Write(head[:n])
+	out.Write(head[:n])
+
+	reader := io.TeeReader(io.LimitReader(resp.Body, 15*1024*1024-int64(n)), hasher)
+	_, err = io.Copy(out, reader)
+	if err != nil {
+		os.Remove(tempFpath)
+		return "", err
+	}
+
+	hashStr := hex.EncodeToString(hasher.Sum(nil))
+
+	mu.Lock()
+	if _, ok := seenHashes[hashStr]; ok {
+		mu.Unlock()
+		os.Remove(tempFpath) // Delete duplicate
+		return "/dev/null", nil
+	}
+	seenHashes[hashStr] = struct{}{}
+	mu.Unlock()
+
+	finalFpath := filepath.Join(dlDir, fmt.Sprintf("%s_download.js", uid))
+	os.Rename(tempFpath, finalFpath)
+
+	return finalFpath, nil
 }
 
-func DownloadJS(urls []string, dlDir string, threads int, dummy interface{}) map[string]string {
+func DownloadJS(urls []string, dlDir string, threads int, pb *pterm.ProgressbarPrinter) map[string]string {
 	downloaded := make(map[string]string)
 	var mu sync.Mutex
 	seenHashes := make(map[string]struct{})
@@ -60,7 +103,6 @@ func DownloadJS(urls []string, dlDir string, threads int, dummy interface{}) map
 
 	sem := make(chan struct{}, threads)
 	var wg sync.WaitGroup
-	var completed int
 
 	for _, u := range urls {
 		wg.Add(1)
@@ -69,40 +111,28 @@ func DownloadJS(urls []string, dlDir string, threads int, dummy interface{}) map
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			defer func() {
-				mu.Lock()
-				completed++
-				core.UI.UpdateProgress(3, completed, len(urls))
-				mu.Unlock()
+				if pb != nil {
+					pb.Add(1)
+				}
 			}()
 
-			var data []byte
+			var finalPath string
 			var err error
 			for attempt := 0; attempt < 3; attempt++ {
-				data, err = fetch(client, urlStr)
-				if err == nil && len(data) > 50 && core.IsValidJS(data) {
+				finalPath, err = attemptDownload(client, urlStr, dlDir, seenHashes, &mu)
+				if err == nil {
 					break
 				}
 				time.Sleep(time.Duration(1<<attempt) * time.Second)
 			}
 
-			if data != nil && len(data) > 50 && core.IsValidJS(data) {
-				hash := core.SHA256(data)
+			if finalPath != "" && finalPath != "/dev/null" {
 				mu.Lock()
-				if _, ok := seenHashes[hash]; ok {
-					downloaded[urlStr] = "/dev/null"
-					mu.Unlock()
-					return
-				}
-				seenHashes[hash] = struct{}{}
+				downloaded[urlStr] = finalPath
 				mu.Unlock()
-
-				uid := core.SHA256([]byte(urlStr))[:6]
-				fname := fmt.Sprintf("%s_download.js", uid)
-				fpath := filepath.Join(dlDir, fname)
-				os.WriteFile(fpath, data, 0644)
-
+			} else if finalPath == "/dev/null" {
 				mu.Lock()
-				downloaded[urlStr] = fpath
+				downloaded[urlStr] = "/dev/null"
 				mu.Unlock()
 			}
 		}(u)

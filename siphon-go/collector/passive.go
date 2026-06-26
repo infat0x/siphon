@@ -10,8 +10,9 @@ import (
 	"time"
 )
 
-func runCmdLines(ctx context.Context, name string, args ...string) []string {
+func runCmdLinesStdin(ctx context.Context, input []string, name string, args ...string) []string {
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = strings.NewReader(strings.Join(input, "\n") + "\n")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	_ = cmd.Run()
@@ -25,69 +26,63 @@ func runCmdLines(ctx context.Context, name string, args ...string) []string {
 	return res
 }
 
-func RunGau(host string) []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+func RunGau(hosts []string) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	bare := core.BareDomain(host)
-	return runCmdLines(ctx, "gau", "--providers", "wayback,commoncrawl,otx,urlscan", "--threads", "5", "--blacklist", "ttf,woff,woff2,eot,svg,png,jpg,jpeg,gif,ico,css,pdf,mp4,mp3,zip", bare)
+	var bareHosts []string
+	for _, h := range hosts {
+		bareHosts = append(bareHosts, core.BareDomain(h))
+	}
+	return runCmdLinesStdin(ctx, bareHosts, "gau", "--providers", "wayback,commoncrawl,otx,urlscan", "--threads", "20", "--blacklist", "ttf,woff,woff2,eot,svg,png,jpg,jpeg,gif,ico,css,pdf,mp4,mp3,zip")
 }
 
-func RunKatana(url string) []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+func RunKatana(urls []string) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	args := []string{"-u", url, "-jc", "-kf", "all", "-aff", "-depth", "5", "-concurrency", "20", "-silent", "-no-color", "-ef", "css,png,jpg,jpeg,gif,ico,svg,ttf,woff,woff2,eot,pdf,mp4,mp3,zip"}
+	args := []string{"-jc", "-kf", "all", "-aff", "-depth", "5", "-concurrency", "50", "-silent", "-no-color", "-ef", "css,png,jpg,jpeg,gif,ico,svg,ttf,woff,woff2,eot,pdf,mp4,mp3,zip"}
 	if core.GlobalConfig.Insecure {
 		args = append(args, "-insecure")
 	}
-	return runCmdLines(ctx, "katana", args...)
+	return runCmdLinesStdin(ctx, urls, "katana", args...)
 }
 
-func RunWaybackurls(host string) []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+func RunWaybackurls(hosts []string) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	bare := core.BareDomain(host)
-	return runCmdLines(ctx, "waybackurls", bare)
+	var bareHosts []string
+	for _, h := range hosts {
+		bareHosts = append(bareHosts, core.BareDomain(h))
+	}
+	return runCmdLinesStdin(ctx, bareHosts, "waybackurls")
 }
 
-func RunHakrawler(url string) []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+func RunHakrawler(urls []string) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	args := []string{"-url", url, "-depth", "3", "-js", "-plain"}
+	args := []string{"-depth", "3", "-js", "-plain"}
 	if core.GlobalConfig.Insecure {
 		args = append(args, "-insecure")
 	}
-	return runCmdLines(ctx, "hakrawler", args...)
+	return runCmdLinesStdin(ctx, urls, "hakrawler", args...)
 }
 
-func RunSubjs(urlStr string) []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+func RunSubjs(urls []string) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "subjs")
-	cmd.Stdin = strings.NewReader(urlStr + "\n")
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	_ = cmd.Run()
-	var res []string
-	for _, l := range strings.Split(stdout.String(), "\n") {
-		l = strings.TrimSpace(l)
-		if strings.HasPrefix(l, "http") {
-			res = append(res, l)
-		}
-	}
-	return res
+	return runCmdLinesStdin(ctx, urls, "subjs")
 }
 
-func RunCariddi(urlStr string) ([]string, []core.Finding) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+func RunCariddi(urls []string) ([]string, []core.Finding) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "cariddi", "-s", "-e", "-plain")
-	cmd.Stdin = strings.NewReader(urlStr + "\n")
+	cmd.Stdin = strings.NewReader(strings.Join(urls, "\n") + "\n")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	_ = cmd.Run()
 
-	var urls []string
+	var outUrls []string
 	var findings []core.Finding
 
 	for _, line := range strings.Split(stdout.String(), "\n") {
@@ -102,14 +97,14 @@ func RunCariddi(urlStr string) ([]string, []core.Finding) {
 				findings = append(findings, core.Finding{
 					Tool:    "cariddi",
 					Type:    "auto",
-					URL:     urlStr,
+					URL:     "cariddi-batch", // Note: Cariddi doesn't output the source URL in plain mode easily, but we can keep it as batch
 					Match:   secretPart,
 					Entropy: fmt.Sprintf("%.2f", core.ShannonEntropy(secretPart)),
 				})
 			}
 		} else if strings.HasPrefix(line, "http") {
-			urls = append(urls, line)
+			outUrls = append(outUrls, line)
 		}
 	}
-	return urls, findings
+	return outUrls, findings
 }

@@ -144,7 +144,7 @@ func main() {
 		}
 
 		// 1. Live Hosts
-		core.UI.UpdateStage(0, core.StageRunning, "")
+		spinHost := core.StartSpinner("1. Live Host Detection")
 		liveFile := filepath.Join(dirs["live"], "live.txt")
 
 		if *skipLiveCheck {
@@ -167,14 +167,14 @@ func main() {
 
 		stats.SetLive(len(live))
 		if len(live) == 0 {
-			core.Logln("No live hosts found. Exiting.")
+			spinHost.Fail("No live hosts found")
 			os.Exit(0)
 		}
 		
-		core.UI.UpdateStage(0, core.StageDone, fmt.Sprintf("%d hosts", len(live)))
+		spinHost.Success(fmt.Sprintf("1. Live Host Detection [%d hosts]", len(live)))
 
 		// 2. URL Collection
-		core.UI.UpdateStage(1, core.StageRunning, "")
+		spinUrl := core.StartSpinner("2. URL Collection")
 		urlsFile := filepath.Join(dirs["urls"], "all_urls.txt")
 		var allUrls []string
 
@@ -191,45 +191,49 @@ func main() {
 		} else {
 			var mu sync.Mutex
 			var wg sync.WaitGroup
-			sem := make(chan struct{}, *threads)
 
-			for _, host := range live {
-				tools := []func(string) []string{
-					collector.RunGau, collector.RunKatana, collector.RunWaybackurls,
-					collector.RunHakrawler, collector.RunSubjs,
-				}
-				for _, t := range tools {
-					wg.Add(1)
-					go func(tool func(string) []string, h string) {
-						defer wg.Done()
-						sem <- struct{}{}
-						defer func() { <-sem }()
-						res := tool(h)
-						mu.Lock()
-						allUrls = append(allUrls, res...)
-						mu.Unlock()
-					}(t, host)
-				}
+			tools := []func([]string) []string{
+				collector.RunGau, collector.RunKatana, collector.RunWaybackurls,
+				collector.RunHakrawler, collector.RunSubjs,
 			}
+
+			cariddiWrapper := func(urls []string) []string {
+				res, _ := collector.RunCariddi(urls)
+				return res
+			}
+			tools = append(tools, cariddiWrapper)
+
+			for _, t := range tools {
+				wg.Add(1)
+				go func(tool func([]string) []string) {
+					defer wg.Done()
+					res := tool(live)
+					mu.Lock()
+					allUrls = append(allUrls, res...)
+					mu.Unlock()
+				}(t)
+			}
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				res := collector.ActiveHTMLScrape(live)
+				mu.Lock()
+				allUrls = append(allUrls, res...)
+				mu.Unlock()
+			}()
+
 			wg.Wait()
-
-			scripts := collector.ActiveHTMLScrape(live)
-			allUrls = append(allUrls, scripts...)
-
-			for _, host := range live {
-				cUrls, _ := collector.RunCariddi(host)
-				allUrls = append(allUrls, cUrls...)
-			}
 
 			allUrls = core.Dedup(allUrls)
 			os.WriteFile(urlsFile, []byte(strings.Join(allUrls, "\n")+"\n"), 0644)
 			core.Logf("  %s✔%s  Total unique URLs    %s%d%s\n", core.GREEN, core.RESET, core.BOLD, len(allUrls), core.RESET)
 		}
 		stats.SetUrls(len(allUrls))
-		core.UI.UpdateStage(1, core.StageDone, fmt.Sprintf("%d URLs", len(allUrls)))
+		spinUrl.Success(fmt.Sprintf("2. URL Collection [%d URLs]", len(allUrls)))
 
 		// 3. JS Extraction & Filter
-		core.UI.UpdateStage(2, core.StageRunning, "")
+		spinExtract := core.StartSpinner("3. JS Extraction")
 		
 		var jsSet []string
 		for _, u := range allUrls {
@@ -250,15 +254,13 @@ func main() {
 
 		stats.SetJsAll(len(jsAll))
 		stats.SetJsCustom(len(jsCustom))
-		core.UI.UpdateStage(2, core.StageDone, fmt.Sprintf("%d custom, %d all", len(jsCustom), len(jsAll)))
+		spinExtract.Success(fmt.Sprintf("3. JS Extraction [%d custom, %d all]", len(jsCustom), len(jsAll)))
 	} // end else mode
 
 	if *skipDownload {
 		core.Logln("Stopping after JS extraction.")
 		os.Exit(0)
 	}
-
-	core.UI.UpdateStage(3, core.StageRunning, "")
 
 	targets := jsCustom
 	if *scanAllJs {
@@ -270,17 +272,16 @@ func main() {
 		os.Exit(0)
 	}
 
-	dlMap := downloader.DownloadJS(targets, dirs["dl"], *threads, nil)
+	dlPb := core.StartProgressBar(len(targets), "4. Downloading JS")
+
+	dlMap := downloader.DownloadJS(targets, dirs["dl"], *threads, dlPb)
 	
 	stats.SetJsDl(len(dlMap))
 	stats.SetDlRate(fmt.Sprintf("%.1f%%", 100.0*float64(len(dlMap))/float64(len(targets))))
 	
-	core.UI.UpdateStage(3, core.StageDone, fmt.Sprintf("%d files", len(dlMap)))
-
 	scanner.CheckGitExposure(live, dirs["git"], *threads)
 
-	core.UI.UpdateStage(4, core.StageRunning, "")
-	core.UI.UpdateProgress(4, 0, 7)
+	spinScan := core.StartSpinner("5. Secret Scanning")
 
 	var allFindings []core.Finding
 	var mu sync.Mutex
@@ -295,8 +296,6 @@ func main() {
 			res := f()
 			mu.Lock()
 			allFindings = append(allFindings, res...)
-			completedScanners++
-			core.UI.UpdateProgress(4, completedScanners, 7)
 			mu.Unlock()
 			core.Logf("  %s✔%s  %-16s %5d findings\n", core.GREEN, core.RESET, name, len(res))
 		}()
@@ -311,7 +310,7 @@ func main() {
 	runScanner("nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"]) })
 
 	wg.Wait()
-	core.UI.UpdateStage(4, core.StageDone, fmt.Sprintf("%d total findings", len(allFindings)))
+	spinScan.Success(fmt.Sprintf("5. Secret Scanning [%d total findings]", len(allFindings)))
 
 	scanner.WriteReport(allFindings, filepath.Join(dirs["secrets"], "final_report.txt"), stats)
 }
