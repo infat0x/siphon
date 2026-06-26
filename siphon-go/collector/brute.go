@@ -2,7 +2,6 @@ package collector
 
 import (
 	"crypto/tls"
-	"fmt"
 	"net/http"
 	"siphon-go/core"
 	"strings"
