@@ -28,6 +28,8 @@ var SecretPatterns = map[string]string{
 	"Azure DB Connection":      `(?i)Server=tcp:[^;]+;Database=[^;]+;User ID=[^;]+;Password=[^;]+;`,
 	"AWS ElastiCache Redis":    `(?i)[a-z0-9.-]+\.cache\.amazonaws\.com:[0-9]{4}`,
 	"Oracle DB JDBC String":    `(?i)jdbc:oracle:thin:[^:]+/[^@]+@[^:]+:[0-9]+:[a-z0-9]+`,
+	"S3 Bucket Leak":           `(?i)[a-z0-9.-]+\.s3\.amazonaws\.com|[a-z0-9.-]+\.s3-[a-z0-9-]+\.amazonaws\.com`,
+	"PHP Error Leak":           `(?i)Fatal error:|parse error:|syntax error:|uncaught exception|PDOException`,
 }
 
 var PatternEntropy = map[string]float64{

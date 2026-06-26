@@ -9,15 +9,15 @@ var Multi *pterm.MultiPrinter
 
 func InitUI() {
 	// Disable pterm's prefix on info to match our custom style
-	pterm.Info.Prefix = pterm.Prefix{Text: " INFO ", Style: pterm.NewStyle(pterm.BgMagenta, pterm.FgBlack)}
-	pterm.Success.Prefix = pterm.Prefix{Text: " OK ", Style: pterm.NewStyle(pterm.BgGreen, pterm.FgBlack)}
-	pterm.Error.Prefix = pterm.Prefix{Text: " ERR ", Style: pterm.NewStyle(pterm.BgRed, pterm.FgBlack)}
+	pterm.Info.Prefix = pterm.Prefix{Text: " INFO ", Style: pterm.NewStyle(pterm.BgCyan, pterm.FgBlack)}
+	pterm.Success.Prefix = pterm.Prefix{Text: "  OK  ", Style: pterm.NewStyle(pterm.BgGreen, pterm.FgBlack)}
+	pterm.Error.Prefix = pterm.Prefix{Text: " FAIL ", Style: pterm.NewStyle(pterm.BgRed, pterm.FgWhite, pterm.Bold)}
 	pterm.Warning.Prefix = pterm.Prefix{Text: " WARN ", Style: pterm.NewStyle(pterm.BgYellow, pterm.FgBlack)}
 
 	// Qlobal rənglərin tənzimlənməsi
-	pterm.ThemeDefault.SpinnerStyle = *pterm.NewStyle(pterm.FgGreen)
-	pterm.ThemeDefault.ProgressbarTitleStyle = *pterm.NewStyle(pterm.FgMagenta, pterm.Bold)
-	pterm.ThemeDefault.ProgressbarBarStyle = *pterm.NewStyle(pterm.FgGreen)
+	pterm.ThemeDefault.SpinnerStyle = *pterm.NewStyle(pterm.FgLightBlue)
+	pterm.ThemeDefault.ProgressbarTitleStyle = *pterm.NewStyle(pterm.FgCyan, pterm.Bold)
+	pterm.ThemeDefault.ProgressbarBarStyle = *pterm.NewStyle(pterm.FgLightGreen)
 
 	// Progress bar formatının tənzimlənməsi (shades_classic tərzi)
 	pterm.DefaultProgressbar.BarCharacter = "█"

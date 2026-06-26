@@ -17,15 +17,15 @@ import (
 )
 
 func banner() {
-	fmt.Printf("%s%s\n", core.MAGENTA, core.BOLD)
+	fmt.Printf("%s%s\n", core.CYAN, core.BOLD)
 	fmt.Println("   =========================================================")
-	fmt.Println("  //                                                       \\\\")
-	fmt.Println(" ||   ███████╗██╗██████╗ ██╗  ██╗ ██████╗ ███╗   ██╗        ||")
-	fmt.Println(" ||   ██╔════╝██║██╔══██╗██║  ██║██╔═══██╗████╗  ██║        ||")
-	fmt.Println(" ||   ███████╗██║██████╔╝███████║██║   ██║██╔██╗ ██║        ||")
-	fmt.Println(" ||   ╚════██║██║██╔═══╝ ██╔══██║██║   ██║██║╚██╗██║        ||")
-	fmt.Println(" ||   ███████║██║██║     ██║  ██║╚██████╔╝██║ ╚████║        ||")
-	fmt.Println(" ||   ╚══════╝╚═╝╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝        ||")
+	fmt.Printf("  //                                                       \\\\\n")
+	fmt.Printf(" ||   %s███████╗██╗██████╗ ██╗  ██╗ ██████╗ ███╗   ██╗%s        ||\n", core.BLUE, core.CYAN)
+	fmt.Printf(" ||   %s██╔════╝██║██╔══██╗██║  ██║██╔═══██╗████╗  ██║%s        ||\n", core.CYAN, core.CYAN)
+	fmt.Printf(" ||   %s███████╗██║██████╔╝███████║██║   ██║██╔██╗ ██║%s        ||\n", core.MAGENTA, core.CYAN)
+	fmt.Printf(" ||   %s╚════██║██║██╔═══╝ ██╔══██║██║   ██║██║╚██╗██║%s        ||\n", core.GREEN, core.CYAN)
+	fmt.Printf(" ||   %s███████║██║██║     ██║  ██║╚██████╔╝██║ ╚████║%s        ||\n", core.YELLOW, core.CYAN)
+	fmt.Printf(" ||   %s╚══════╝╚═╝╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝%s        ||\n", core.RED, core.CYAN)
 	fmt.Println("  \\\\=======================================================//")
 	fmt.Printf("%s   v6  •  Siphon-Go  •  Full 1-to-1 Native Port%s\n\n", core.DIM, core.RESET)
 }
@@ -102,7 +102,7 @@ func main() {
 		core.Logf("  %s⚠%s  Could not initialize debug logger: %v\n", core.YELLOW, core.RESET, err)
 	}
 
-	core.Logf("  %s→%s  Output root: %s%s%s\n", core.MAGENTA, core.RESET, core.BOLD, dirs["base"], core.RESET)
+	core.Logf("  %s→%s  Output root: %s%s%s\n", core.CYAN, core.RESET, core.BOLD, dirs["base"], core.RESET)
 
 	var jsAll []string
 	var jsCustom []string
@@ -112,7 +112,7 @@ func main() {
 	if *jsUrl != "" {
 		// SINGLE JS URL MODE
 		urlStr := core.NormaliseHost(*jsUrl)
-		core.Logf("  %s→%s  Mode   : %ssingle-url%s  →  %s\n", core.MAGENTA, core.RESET, core.BOLD, core.RESET, urlStr)
+		core.Logf("  %s→%s  Mode   : %ssingle-url%s  →  %s%s%s\n", core.BLUE, core.RESET, core.BOLD, core.RESET, core.CYAN, urlStr, core.RESET)
 		
 		jsAll = []string{urlStr}
 		jsCustom = []string{urlStr}
@@ -137,7 +137,7 @@ func main() {
 			tmpSubs := filepath.Join(*outDir, "_domain_input.txt")
 			os.WriteFile(tmpSubs, []byte(domainUrl+"\n"), 0644)
 			subsList = []string{domainUrl}
-			core.Logf("  %s→%s  Mode   : %ssingle-domain%s  →  %s\n", core.MAGENTA, core.RESET, core.BOLD, core.RESET, domainUrl)
+			core.Logf("  %s→%s  Mode   : %ssingle-domain%s  →  %s%s%s\n", core.BLUE, core.RESET, core.BOLD, core.RESET, core.CYAN, domainUrl, core.RESET)
 		} else if *pathFilter != "" && strings.HasPrefix(*pathFilter, "http") {
 			// Extract domain from URL provided in pathFilter to run scan
 			singleDomain = true
@@ -165,7 +165,7 @@ func main() {
 					subsList = append(subsList, l)
 				}
 			}
-			core.Logf("  %s→%s  %s%d%s host(s) loaded\n", core.MAGENTA, core.RESET, core.BOLD, len(subsList), core.RESET)
+			core.Logf("  %s→%s  %s%s%d%s host(s) loaded\n", core.BLUE, core.RESET, core.BOLD, core.YELLOW, len(subsList), core.RESET)
 		}
 
 		// 1. Live Hosts
@@ -275,7 +275,7 @@ func main() {
 
 			allUrls = core.Dedup(allUrls)
 			os.WriteFile(urlsFile, []byte(strings.Join(allUrls, "\n")+"\n"), 0644)
-			core.Logf("  %s✔%s  Total unique URLs    %s%d%s\n", core.GREEN, core.RESET, core.BOLD, len(allUrls), core.RESET)
+			core.Logf("  %s✔%s  Total unique URLs    %s%s%d%s\n", core.GREEN, core.RESET, core.BOLD, core.YELLOW, len(allUrls), core.RESET)
 		}
 		stats.SetUrls(len(allUrls))
 		core.Logf("  %s✔%s  2. URL Collection [%d URLs]\n", core.GREEN, core.RESET, len(allUrls))
@@ -286,7 +286,7 @@ func main() {
 		var jsSet []string
 
 		if *pathFilter != "" {
-			core.Logf("\n  %s→%s  Path Filter active: Scraping HTML of specific path directly for JS targets...\n", core.MAGENTA, core.RESET)
+			core.Logf("\n  %s→%s  %sPath Filter active:%s Scraping HTML of %s%s%s directly for JS targets...\n", core.CYAN, core.RESET, core.BOLD, core.RESET, core.YELLOW, *pathFilter, core.RESET)
 			var targetPaths []string
 			if strings.HasPrefix(*pathFilter, "http") {
 				targetPaths = append(targetPaths, *pathFilter)
@@ -329,7 +329,7 @@ func main() {
 
 		stats.SetJsAll(len(jsAll))
 		stats.SetJsCustom(len(jsCustom))
-		core.Logf("  %s✔%s  3. JS Extraction [%d custom, %d all]\n", core.GREEN, core.RESET, len(jsCustom), len(jsAll))
+		core.Logf("  %s✔%s  3. JS Extraction [%s%d%s custom, %s%d%s all]\n", core.GREEN, core.RESET, core.CYAN, len(jsCustom), core.RESET, core.DIM, len(jsAll), core.RESET)
 	} // end else mode
 
 	if *skipDownload {
@@ -382,7 +382,6 @@ func main() {
 	runScanner("Regex", func() []core.Finding { return scanner.ScanRegex(dlMap) })
 	runScanner("Trufflehog", func() []core.Finding { return scanner.ScanTrufflehog(dirs["dl"], dirs["raw"]) })
 	runScanner("Gitleaks", func() []core.Finding { return scanner.ScanGitleaks(dirs["dl"], dirs["raw"]) })
-	runScanner("Gf", func() []core.Finding { return scanner.ScanGf(dlMap, dirs["raw"]) })
 	runScanner("Jsleak", func() []core.Finding { return scanner.ScanJsleak(dlMap, dirs["raw"]) })
 	runScanner("Jsluice", func() []core.Finding { return scanner.ScanJsluice(dlMap, dirs["raw"]) })
 	runScanner("Nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"]) })
@@ -402,7 +401,7 @@ func main() {
 		}
 	}
 
-	core.Logf("  %s✔%s  5. Secret Scanning [%d total findings]\n", core.GREEN, core.RESET, len(allFindings))
+	core.Logf("  %s✔%s  5. Secret Scanning [%s%d%s total findings]\n", core.GREEN, core.RESET, core.RED, len(allFindings), core.RESET)
 
 	scanner.WriteReport(allFindings, filepath.Join(dirs["secrets"], "final_report.txt"), stats)
 }

@@ -150,56 +150,7 @@ func ScanNuclei(jsUrls []string, rawDir string) []core.Finding {
 	return findings
 }
 
-func ScanGf(dlMap map[string]string, rawDir string) []core.Finding {
-	var findings []core.Finding
-	var combined []string
-	for url, path := range dlMap {
-		if path == "" || path == "/dev/null" {
-			continue
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		for _, line := range strings.Split(string(data), "\n") {
-			combined = append(combined, url+": "+line)
-		}
-	}
 
-	patterns := []string{"aws-keys", "base64", "firebase", "json-sec", "jwt", "php-errors", "s3-buckets", "secrets", "servers"}
-	for _, pat := range patterns {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		cmd := exec.CommandContext(ctx, "gf", pat)
-		cmd.Stdin = strings.NewReader(strings.Join(combined, "\n"))
-		var stdout bytes.Buffer
-		cmd.Stdout = &stdout
-		_ = cmd.Run()
-		cancel()
-
-		if stdout.Len() > 0 {
-			os.WriteFile(filepath.Join(rawDir, "gf_"+pat+".txt"), stdout.Bytes(), 0644)
-			for _, line := range strings.Split(stdout.String(), "\n") {
-				if len(strings.TrimSpace(line)) == 0 {
-					continue
-				}
-				parts := strings.SplitN(line, ": ", 2)
-				url := ""
-				match := line
-				if len(parts) == 2 {
-					url = parts[0]
-					match = parts[1]
-				}
-				findings = append(findings, core.Finding{
-					Tool:  "gf",
-					Type:  pat,
-					URL:   url,
-					Match: match,
-				})
-			}
-		}
-	}
-	return findings
-}
 
 func ScanJsleak(dlMap map[string]string, rawDir string) []core.Finding {
 	var findings []core.Finding
