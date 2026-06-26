@@ -39,11 +39,29 @@ func ScanTrufflehog(dlDir string, rawDir string) []core.Finding {
 		}
 		var obj map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &obj); err == nil {
+			
+			// Trufflehog v3 JSON nested structure parsing
+			filePath := ""
+			if sm, ok := obj["SourceMetadata"].(map[string]interface{}); ok {
+				if data, ok := sm["Data"].(map[string]interface{}); ok {
+					if fs, ok := data["Filesystem"].(map[string]interface{}); ok {
+						if f, ok := fs["file"].(string); ok {
+							filePath = f
+						}
+					}
+				}
+			}
+
+			// Fallback if not found
+			if filePath == "" {
+				filePath = fmt.Sprintf("%v", obj["SourceMetadata"])
+			}
+
 			findings = append(findings, core.Finding{
 				Tool:  "trufflehog",
 				Type:  fmt.Sprintf("%v", obj["DetectorName"]),
-				URL:   fmt.Sprintf("%v", obj["SourceMetadata"]),
-				File:  fmt.Sprintf("%v", obj["SourceMetadata"]),
+				URL:   filePath, // Will be mapped to original URL in main.go
+				File:  filePath,
 				Match: fmt.Sprintf("%v", obj["Raw"]),
 			})
 		}
