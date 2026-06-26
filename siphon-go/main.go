@@ -371,6 +371,20 @@ func main() {
 	runScanner("nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"]) })
 
 	wg.Wait()
+	reverseMap := make(map[string]string)
+	for u, p := range dlMap {
+		if p != "/dev/null" {
+			reverseMap[filepath.Base(p)] = u
+		}
+	}
+
+	for i := range allFindings {
+		fFile := filepath.Base(allFindings[i].File)
+		if origURL, ok := reverseMap[fFile]; ok {
+			allFindings[i].URL = origURL
+		}
+	}
+
 	core.Logf("  %s✔%s  5. Secret Scanning [%d total findings]\n", core.GREEN, core.RESET, len(allFindings))
 
 	scanner.WriteReport(allFindings, filepath.Join(dirs["secrets"], "final_report.txt"), stats)
