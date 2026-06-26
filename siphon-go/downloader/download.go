@@ -22,7 +22,14 @@ var userAgents = []string{
 	"Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
 }
 
-func attemptDownload(client *http.Client, urlStr, dlDir string, seenHashes map[string]struct{}, mu *sync.Mutex) (string, error) {
+var copyBufPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, 128*1024) // 128KB buffer for faster I/O
+		return &b
+	},
+}
+
+func attemptDownload(client *http.Client, urlStr, dlDir string, seenHashes *sync.Map) (string, error) {
 	req, err := http.NewRequest("GET", urlStr, nil)
 	if err != nil {
 		return "", err
@@ -66,7 +73,11 @@ func attemptDownload(client *http.Client, urlStr, dlDir string, seenHashes map[s
 	out.Write(head[:n])
 
 	reader := io.TeeReader(io.LimitReader(resp.Body, 15*1024*1024-int64(n)), hasher)
-	_, err = io.Copy(out, reader)
+	
+	bufPtr := copyBufPool.Get().(*[]byte)
+	defer copyBufPool.Put(bufPtr)
+
+	_, err = io.CopyBuffer(out, reader, *bufPtr)
 	if err != nil {
 		os.Remove(tempFpath)
 		return "", err
@@ -74,14 +85,10 @@ func attemptDownload(client *http.Client, urlStr, dlDir string, seenHashes map[s
 
 	hashStr := hex.EncodeToString(hasher.Sum(nil))
 
-	mu.Lock()
-	if _, ok := seenHashes[hashStr]; ok {
-		mu.Unlock()
+	if _, loaded := seenHashes.LoadOrStore(hashStr, struct{}{}); loaded {
 		os.Remove(tempFpath) // Delete duplicate
 		return "/dev/null", nil
 	}
-	seenHashes[hashStr] = struct{}{}
-	mu.Unlock()
 
 	finalFpath := filepath.Join(dlDir, fmt.Sprintf("%s_download.js", uid))
 	os.Rename(tempFpath, finalFpath)
@@ -90,60 +97,70 @@ func attemptDownload(client *http.Client, urlStr, dlDir string, seenHashes map[s
 }
 
 func DownloadJS(urls []string, dlDir string, threads int, pb *pterm.ProgressbarPrinter) map[string]string {
-	downloaded := make(map[string]string)
-	var mu sync.Mutex
-	seenHashes := make(map[string]struct{})
+	var downloaded sync.Map
+	var seenHashes sync.Map
 
+	// Set MaxConnsPerHost to 0 (unlimited) or at least `threads` so we don't bottleneck
+	// when downloading many files from the same target server.
 	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: core.GlobalConfig.Insecure},
-		MaxIdleConns:        1000,
-		MaxIdleConnsPerHost: 100,
-		MaxConnsPerHost:     100,
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: core.GlobalConfig.Insecure},
+		MaxIdleConns:        10000,
+		MaxIdleConnsPerHost: 1000,
+		MaxConnsPerHost:     0, // 0 means no limit
 		IdleConnTimeout:     30 * time.Second,
 		DisableKeepAlives:   false,
+		ForceAttemptHTTP2:   true,
 	}
 	client := &http.Client{
 		Transport: transport,
 		Timeout:   10 * time.Second,
 	}
 
-	sem := make(chan struct{}, threads)
-	var wg sync.WaitGroup
-
+	urlChan := make(chan string, len(urls))
 	for _, u := range urls {
-		wg.Add(1)
-		go func(urlStr string) {
+		urlChan <- u
+	}
+	close(urlChan)
+
+	var wg sync.WaitGroup
+	
+	// Create exactly `threads` number of workers
+	workerCount := threads
+	if workerCount > len(urls) {
+		workerCount = len(urls)
+	}
+
+	wg.Add(workerCount)
+	for i := 0; i < workerCount; i++ {
+		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			defer func() {
+			for urlStr := range urlChan {
+				var finalPath string
+				var err error
+				for attempt := 0; attempt < 3; attempt++ {
+					finalPath, err = attemptDownload(client, urlStr, dlDir, &seenHashes)
+					if err == nil {
+						break
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+
+				if finalPath != "" {
+					downloaded.Store(urlStr, finalPath)
+				}
+
 				if pb != nil {
 					pb.Add(1)
 				}
-			}()
-
-			var finalPath string
-			var err error
-			for attempt := 0; attempt < 3; attempt++ {
-				finalPath, err = attemptDownload(client, urlStr, dlDir, seenHashes, &mu)
-				if err == nil {
-					break
-				}
-				// Retry very fast to avoid long hangs on dead links
-				time.Sleep(100 * time.Millisecond)
 			}
-
-			if finalPath != "" && finalPath != "/dev/null" {
-				mu.Lock()
-				downloaded[urlStr] = finalPath
-				mu.Unlock()
-			} else if finalPath == "/dev/null" {
-				mu.Lock()
-				downloaded[urlStr] = "/dev/null"
-				mu.Unlock()
-			}
-		}(u)
+		}()
 	}
 	wg.Wait()
-	return downloaded
+
+	result := make(map[string]string)
+	downloaded.Range(func(key, value interface{}) bool {
+		result[key.(string)] = value.(string)
+		return true
+	})
+	return result
 }

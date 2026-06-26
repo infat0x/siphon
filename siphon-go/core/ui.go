@@ -17,7 +17,7 @@ func InitUI() {
 	// Qlobal rənglərin tənzimlənməsi
 	pterm.ThemeDefault.SpinnerStyle = *pterm.NewStyle(pterm.FgGreen)
 	pterm.ThemeDefault.ProgressbarTitleStyle = *pterm.NewStyle(pterm.FgMagenta, pterm.Bold)
-	pterm.ThemeDefault.ProgressbarBarColor = *pterm.NewStyle(pterm.FgGreen)
+	pterm.ThemeDefault.ProgressbarBarStyle = *pterm.NewStyle(pterm.FgGreen)
 
 	// Progress bar formatının tənzimlənməsi (shades_classic tərzi)
 	pterm.DefaultProgressbar.BarCharacter = "█"
