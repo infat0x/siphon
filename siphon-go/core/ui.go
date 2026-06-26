@@ -15,8 +15,7 @@ func InitUI() {
 	pterm.Warning.Prefix = pterm.Prefix{Text: "WARN", Style: pterm.NewStyle(pterm.BgYellow, pterm.FgBlack)}
 
 	// Qlobal rənglərin tənzimlənməsi (Mavi rəngdən qaçınmaq üçün)
-	pterm.ThemeDefault.SpinnerStyle = pterm.NewStyle(pterm.FgGreen)
-	pterm.ThemeDefault.ProgressbarBarColor = pterm.NewStyle(pterm.FgMagenta)
+	pterm.ThemeDefault.SpinnerStyle = *pterm.NewStyle(pterm.FgGreen)
 
 	// Progress bar formatının tənzimlənməsi
 	pterm.DefaultProgressbar.ShowPercentage = true
