@@ -96,12 +96,15 @@ func DownloadJS(urls []string, dlDir string, threads int, pb *pterm.ProgressbarP
 
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: core.GlobalConfig.Insecure},
-		MaxIdleConns:    100,
-		IdleConnTimeout: 90 * time.Second,
+		MaxIdleConns:        1000,
+		MaxIdleConnsPerHost: 100,
+		MaxConnsPerHost:     100,
+		IdleConnTimeout:     30 * time.Second,
+		DisableKeepAlives:   false,
 	}
 	client := &http.Client{
 		Transport: transport,
-		Timeout:   20 * time.Second,
+		Timeout:   10 * time.Second,
 	}
 
 	sem := make(chan struct{}, threads)
@@ -126,7 +129,8 @@ func DownloadJS(urls []string, dlDir string, threads int, pb *pterm.ProgressbarP
 				if err == nil {
 					break
 				}
-				time.Sleep(time.Duration(1<<attempt) * time.Second)
+				// Retry very fast to avoid long hangs on dead links
+				time.Sleep(100 * time.Millisecond)
 			}
 
 			if finalPath != "" && finalPath != "/dev/null" {
