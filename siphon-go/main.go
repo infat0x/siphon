@@ -62,8 +62,7 @@ func main() {
 	}
 
 	core.InitUI()
-	core.UI.Start()
-	defer core.UI.Stop()
+	defer core.StopUI()
 
 	banner()
 
@@ -88,8 +87,15 @@ func main() {
 		"git":     filepath.Join(*outDir, "git_dumps"),
 	}
 
-	for _, d := range dirs {
-		os.MkdirAll(d, 0755)
+	for _, p := range dirs {
+		os.MkdirAll(p, 0755)
+	}
+
+	logDir := filepath.Join(*outDir, "logs")
+	if err := core.InitLogger(logDir); err == nil {
+		defer core.CloseLogger()
+	} else {
+		core.Logf("  %s⚠%s  Could not initialize debug logger: %v\n", core.YELLOW, core.RESET, err)
 	}
 
 	core.Logf("  %s→%s  Output root: %s%s%s\n", core.CYAN, core.RESET, core.BOLD, dirs["base"], core.RESET)
@@ -286,8 +292,6 @@ func main() {
 	var allFindings []core.Finding
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-
-	var completedScanners int
 
 	runScanner := func(name string, f func() []core.Finding) {
 		wg.Add(1)

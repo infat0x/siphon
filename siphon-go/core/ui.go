@@ -22,11 +22,15 @@ func StopUI() {
 }
 
 func Logf(format string, a ...interface{}) {
-	pterm.Info.Print(fmt.Sprintf(format, a...))
+	msg := fmt.Sprintf(format, a...)
+	pterm.Info.Print(msg)
+	Info(msg)
 }
 
 func Logln(a ...interface{}) {
-	pterm.Info.Println(a...)
+	msg := fmt.Sprintln(a...)
+	pterm.Info.Print(msg)
+	Info(msg)
 }
 
 func StartSpinner(text string) *pterm.SpinnerPrinter {

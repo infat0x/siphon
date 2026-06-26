@@ -37,16 +37,19 @@ func attemptDownload(client *http.Client, urlStr, dlDir string, seenHashes map[s
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		core.Debug("Download failed for %s with status %d", urlStr, resp.StatusCode)
 		return "", fmt.Errorf("status code: %d", resp.StatusCode)
 	}
 
 	head := make([]byte, 512)
 	n, err := io.ReadFull(resp.Body, head)
 	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+		core.Debug("Failed reading head for %s: %v", urlStr, err)
 		return "", err
 	}
 
 	if n < 50 || !core.IsValidJS(head[:n]) {
+		core.Debug("Invalid JS or too small for %s (size %d)", urlStr, n)
 		return "", fmt.Errorf("invalid JS or too small")
 	}
 
