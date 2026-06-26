@@ -186,7 +186,7 @@ func main() {
 			pbHost.Add(1)
 		} else if singleDomain {
 			pbHost = core.StartProgressBar(1, "1. Live Host Detection")
-			live = []string{core.NormaliseHost(*domain)}
+			live = subsList
 			os.WriteFile(liveFile, []byte(strings.Join(live, "\n")+"\n"), 0644)
 			core.Logf("\n[1/5] Single-domain mode — skipping httpx probe\n")
 			pbHost.Add(1)
