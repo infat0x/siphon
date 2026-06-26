@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-package main
 
 var CommonJSPaths = []string{
 	// ── Root-level basics ──────────────────────────────────────────────────────

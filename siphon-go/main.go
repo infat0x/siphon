@@ -224,35 +224,45 @@ func main() {
 			var mu sync.Mutex
 			var wg sync.WaitGroup
 
-			tools := []func([]string) []string{
-				collector.RunGau, collector.RunKatana, collector.RunWaybackurls,
-				collector.RunHakrawler, collector.RunSubjs,
+			tools := []struct {
+				name string
+				fn   func([]string) []string
+			}{
+				{"Gau", collector.RunGau},
+				{"Katana", collector.RunKatana},
+				{"Waybackurls", collector.RunWaybackurls},
+				{"Hakrawler", collector.RunHakrawler},
+				{"Subjs", collector.RunSubjs},
+				{"Cariddi", func(urls []string) []string {
+					res, _ := collector.RunCariddi(urls)
+					return res
+				}},
 			}
-
-			cariddiWrapper := func(urls []string) []string {
-				res, _ := collector.RunCariddi(urls)
-				return res
-			}
-			tools = append(tools, cariddiWrapper)
 
 			for _, t := range tools {
 				wg.Add(1)
-				go func(tool func([]string) []string) {
+				go func(name string, tool func([]string) []string) {
 					defer wg.Done()
+					sp := core.StartSpinner(fmt.Sprintf("Running %s...", name))
 					res := tool(live)
+					sp.Success(fmt.Sprintf("%s finished (%d URLs)", name, len(res)))
+					
 					mu.Lock()
 					allUrls = append(allUrls, res...)
 					mu.Unlock()
 					if pbUrl != nil {
 						pbUrl.Add(1)
 					}
-				}(t)
+				}(t.name, t.fn)
 			}
 
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				sp := core.StartSpinner("Running Active HTML Scrape...")
 				res := collector.ActiveHTMLScrape(live)
+				sp.Success(fmt.Sprintf("Active HTML Scrape finished (%d URLs)", len(res)))
+				
 				mu.Lock()
 				allUrls = append(allUrls, res...)
 				mu.Unlock()
@@ -351,24 +361,26 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			sp := core.StartSpinner(fmt.Sprintf("Scanning with %s...", name))
 			res := f()
+			
 			mu.Lock()
 			allFindings = append(allFindings, res...)
 			mu.Unlock()
 			if pbScan != nil {
 				pbScan.Add(1)
 			}
-			core.Logf("  %s✔%s  %-16s %5d findings\n", core.GREEN, core.RESET, name, len(res))
+			sp.Success(fmt.Sprintf("%s finished (%d findings)", name, len(res)))
 		}()
 	}
 
-	runScanner("regex", func() []core.Finding { return scanner.ScanRegex(dlMap) })
-	runScanner("trufflehog", func() []core.Finding { return scanner.ScanTrufflehog(dirs["dl"], dirs["raw"]) })
-	runScanner("gitleaks", func() []core.Finding { return scanner.ScanGitleaks(dirs["dl"], dirs["raw"]) })
-	runScanner("gf", func() []core.Finding { return scanner.ScanGf(dlMap, dirs["raw"]) })
-	runScanner("jsleak", func() []core.Finding { return scanner.ScanJsleak(dlMap, dirs["raw"]) })
-	runScanner("jsluice", func() []core.Finding { return scanner.ScanJsluice(dlMap, dirs["raw"]) })
-	runScanner("nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"]) })
+	runScanner("Regex", func() []core.Finding { return scanner.ScanRegex(dlMap) })
+	runScanner("Trufflehog", func() []core.Finding { return scanner.ScanTrufflehog(dirs["dl"], dirs["raw"]) })
+	runScanner("Gitleaks", func() []core.Finding { return scanner.ScanGitleaks(dirs["dl"], dirs["raw"]) })
+	runScanner("Gf", func() []core.Finding { return scanner.ScanGf(dlMap, dirs["raw"]) })
+	runScanner("Jsleak", func() []core.Finding { return scanner.ScanJsleak(dlMap, dirs["raw"]) })
+	runScanner("Jsluice", func() []core.Finding { return scanner.ScanJsluice(dlMap, dirs["raw"]) })
+	runScanner("Nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"]) })
 
 	wg.Wait()
 	reverseMap := make(map[string]string)
