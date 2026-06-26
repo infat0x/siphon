@@ -78,4 +78,3 @@ func RunHakrawler(urls []string) []string {
 	}
 	return runCmdLinesStdin(ctx, urls, "hakrawler", args...)
 }
-}
