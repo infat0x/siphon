@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"siphon-go/core"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -81,33 +82,52 @@ func ScanGitleaks(dlDir string, rawDir string) []core.Finding {
 
 func ScanJsluice(dlMap map[string]string, rawDir string) []core.Finding {
 	var findings []core.Finding
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	sem := make(chan struct{}, 20)
 
 	for url, path := range dlMap {
 		if path == "" || path == "/dev/null" {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		out, _ := runCmd(ctx, "jsluice", "secrets", path)
-		cancel()
+		wg.Add(1)
+		go func(urlStr, fpath string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		for _, line := range strings.Split(out, "\n") {
-			if line == "" {
-				continue
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			out, _ := runCmd(ctx, "jsluice", "secrets", fpath)
+			cancel()
+
+			var localFindings []core.Finding
+			for _, line := range strings.Split(out, "\n") {
+				if line == "" {
+					continue
+				}
+				var obj map[string]interface{}
+				if err := json.Unmarshal([]byte(line), &obj); err == nil {
+					dataMap, _ := obj["data"].(map[string]interface{})
+					localFindings = append(localFindings, core.Finding{
+						Tool:  "jsluice",
+						Type:  fmt.Sprintf("%v", obj["kind"]),
+						URL:   urlStr,
+						File:  fpath,
+						Match: fmt.Sprintf("%v", dataMap["match"]),
+						Line:  fmt.Sprintf("%v", obj["line"]),
+					})
+				}
 			}
-			var obj map[string]interface{}
-			if err := json.Unmarshal([]byte(line), &obj); err == nil {
-				dataMap, _ := obj["data"].(map[string]interface{})
-				findings = append(findings, core.Finding{
-					Tool:  "jsluice",
-					Type:  fmt.Sprintf("%v", obj["kind"]),
-					URL:   url,
-					File:  path,
-					Match: fmt.Sprintf("%v", dataMap["match"]),
-					Line:  fmt.Sprintf("%v", obj["line"]),
-				})
+
+			if len(localFindings) > 0 {
+				mu.Lock()
+				findings = append(findings, localFindings...)
+				mu.Unlock()
 			}
-		}
+		}(url, path)
 	}
+	wg.Wait()
 	return findings
 }
 
@@ -155,31 +175,51 @@ func ScanNuclei(jsUrls []string, rawDir string) []core.Finding {
 func ScanJsleak(dlMap map[string]string, rawDir string) []core.Finding {
 	var findings []core.Finding
 	var rawLines []string
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	sem := make(chan struct{}, 20)
 
 	for url, path := range dlMap {
 		if path == "" || path == "/dev/null" {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		out, _ := runCmd(ctx, "jsleak", "-f", path, "-s")
-		cancel()
+		wg.Add(1)
+		go func(urlStr, fpath string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		for _, line := range strings.Split(out, "\n") {
-			line = strings.TrimSpace(line)
-			if len(line) < 10 {
-				continue
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			out, _ := runCmd(ctx, "jsleak", "-f", fpath, "-s")
+			cancel()
+
+			var localFindings []core.Finding
+			var localRaw []string
+			for _, line := range strings.Split(out, "\n") {
+				line = strings.TrimSpace(line)
+				if len(line) < 10 {
+					continue
+				}
+				localRaw = append(localRaw, urlStr+": "+line)
+				localFindings = append(localFindings, core.Finding{
+					Tool:    "jsleak",
+					Type:    "secret",
+					URL:     urlStr,
+					File:    fpath,
+					Match:   line,
+					Entropy: fmt.Sprintf("%.2f", core.ShannonEntropy(line)),
+				})
 			}
-			rawLines = append(rawLines, url+": "+line)
-			findings = append(findings, core.Finding{
-				Tool:    "jsleak",
-				Type:    "secret",
-				URL:     url,
-				File:    path,
-				Match:   line,
-				Entropy: fmt.Sprintf("%.2f", core.ShannonEntropy(line)),
-			})
-		}
+
+			mu.Lock()
+			findings = append(findings, localFindings...)
+			rawLines = append(rawLines, localRaw...)
+			mu.Unlock()
+		}(url, path)
 	}
+
+	wg.Wait()
 	os.WriteFile(filepath.Join(rawDir, "jsleak_findings.txt"), []byte(strings.Join(rawLines, "\n")), 0644)
 	return findings
 }

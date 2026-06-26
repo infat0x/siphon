@@ -8,8 +8,6 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
-	"sync/atomic"
-	"time"
 )
 
 // ANSI Colors
