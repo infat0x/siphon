@@ -8,6 +8,7 @@ import (
 	"siphon-go/collector"
 	"siphon-go/core"
 	"siphon-go/downloader"
+	"net/url"
 	"siphon-go/scanner"
 	"strings"
 	"sync"
@@ -140,7 +141,14 @@ func main() {
 		} else if *pathFilter != "" && strings.HasPrefix(*pathFilter, "http") {
 			// Extract domain from URL provided in pathFilter to run scan
 			singleDomain = true
-			domainUrl := core.NormaliseHost(*pathFilter)
+			
+			u, err := url.Parse(*pathFilter)
+			domainUrl := *pathFilter
+			if err == nil {
+				domainUrl = u.Scheme + "://" + u.Host
+			}
+
+			domainUrl = core.NormaliseHost(domainUrl)
 			tmpSubs := filepath.Join(*outDir, "_domain_input.txt")
 			os.WriteFile(tmpSubs, []byte(domainUrl+"\n"), 0644)
 			subsList = []string{domainUrl}
