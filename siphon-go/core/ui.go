@@ -14,6 +14,15 @@ func InitUI() {
 	pterm.Error.Prefix = pterm.Prefix{Text: "ERROR", Style: pterm.NewStyle(pterm.BgRed, pterm.FgBlack)}
 	pterm.Warning.Prefix = pterm.Prefix{Text: "WARN", Style: pterm.NewStyle(pterm.BgYellow, pterm.FgBlack)}
 
+	// Qlobal rənglərin tənzimlənməsi (Mavi rəngdən qaçınmaq üçün)
+	pterm.ThemeDefault.SpinnerStyle = pterm.NewStyle(pterm.FgGreen)
+	pterm.ThemeDefault.ProgressbarBarColor = pterm.NewStyle(pterm.FgMagenta)
+
+	// Progress bar formatının tənzimlənməsi
+	pterm.DefaultProgressbar.ShowPercentage = true
+	pterm.DefaultProgressbar.ShowCount = true
+	pterm.DefaultProgressbar.ShowElapsedTime = true
+
 	Multi, _ = pterm.DefaultMultiPrinter.Start()
 }
 

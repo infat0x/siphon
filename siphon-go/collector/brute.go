@@ -56,7 +56,7 @@ func BruteJSPaths(liveHosts []string) []string {
 	sem := make(chan struct{}, core.GlobalConfig.Threads*2)
 	var wg sync.WaitGroup
 
-	core.Logf("  %s→%s  Brute-force %d common JS paths...\n", core.CYAN, core.RESET, len(CommonJSPaths))
+	core.Logf("  %s→%s  Brute-force %d common JS paths...\n", core.MAGENTA, core.RESET, len(CommonJSPaths))
 
 	for _, host := range liveHosts {
 		host = strings.TrimRight(host, "/")

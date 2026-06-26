@@ -14,7 +14,7 @@ import (
 )
 
 func banner() {
-	fmt.Printf("%s%s\n", core.CYAN, core.BOLD)
+	fmt.Printf("%s%s\n", core.MAGENTA, core.BOLD)
 	fmt.Println("   =========================================================")
 	fmt.Println("  //                                                       \\\\")
 	fmt.Println(" ||   ███████╗██╗██████╗ ██╗  ██╗ ██████╗ ███╗   ██╗        ||")
@@ -98,7 +98,7 @@ func main() {
 		core.Logf("  %s⚠%s  Could not initialize debug logger: %v\n", core.YELLOW, core.RESET, err)
 	}
 
-	core.Logf("  %s→%s  Output root: %s%s%s\n", core.CYAN, core.RESET, core.BOLD, dirs["base"], core.RESET)
+	core.Logf("  %s→%s  Output root: %s%s%s\n", core.MAGENTA, core.RESET, core.BOLD, dirs["base"], core.RESET)
 
 	var jsAll []string
 	var jsCustom []string
@@ -108,7 +108,7 @@ func main() {
 	if *jsUrl != "" {
 		// SINGLE JS URL MODE
 		urlStr := core.NormaliseHost(*jsUrl)
-		core.Logf("  %s→%s  Mode   : %ssingle-url%s  →  %s\n", core.CYAN, core.RESET, core.BOLD, core.RESET, urlStr)
+		core.Logf("  %s→%s  Mode   : %ssingle-url%s  →  %s\n", core.MAGENTA, core.RESET, core.BOLD, core.RESET, urlStr)
 		
 		jsAll = []string{urlStr}
 		jsCustom = []string{urlStr}
@@ -133,7 +133,7 @@ func main() {
 			tmpSubs := filepath.Join(*outDir, "_domain_input.txt")
 			os.WriteFile(tmpSubs, []byte(domainUrl+"\n"), 0644)
 			subsList = []string{domainUrl}
-			core.Logf("  %s→%s  Mode   : %ssingle-domain%s  →  %s\n", core.CYAN, core.RESET, core.BOLD, core.RESET, domainUrl)
+			core.Logf("  %s→%s  Mode   : %ssingle-domain%s  →  %s\n", core.MAGENTA, core.RESET, core.BOLD, core.RESET, domainUrl)
 		} else if *subs != "" {
 			data, err := os.ReadFile(*subs)
 			if err != nil {
@@ -146,7 +146,7 @@ func main() {
 					subsList = append(subsList, l)
 				}
 			}
-			core.Logf("  %s→%s  %s%d%s host(s) loaded\n", core.CYAN, core.RESET, core.BOLD, len(subsList), core.RESET)
+			core.Logf("  %s→%s  %s%d%s host(s) loaded\n", core.MAGENTA, core.RESET, core.BOLD, len(subsList), core.RESET)
 		}
 
 		// 1. Live Hosts

@@ -19,7 +19,7 @@ const (
 	GREEN   = "\033[92m"
 	YELLOW  = "\033[93m"
 	RED     = "\033[91m"
-	CYAN    = "\033[96m"
+	MAGENTA = "\033[95m"
 	DIM     = "\033[2m"
 )
 
@@ -178,5 +178,5 @@ func (p *ProgressBar) render() {
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled)
 
 	// Use \r to overwrite line, and \033[K to clear to end of line
-	fmt.Printf("\r  %s%s%s %s [%d/%d] %.1f%% • %s \033[K", CYAN, p.Message, RESET, bar, cur, tot, percent, timeLeft)
+	fmt.Printf("\r  %s%s%s %s [%d/%d] %.1f%% • %s \033[K", MAGENTA, p.Message, RESET, bar, cur, tot, percent, timeLeft)
 }
