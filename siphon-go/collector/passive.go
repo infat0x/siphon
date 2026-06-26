@@ -23,7 +23,15 @@ func runCmdLinesStdin(ctx context.Context, input []string, name string, args ...
 		l = strings.TrimSpace(l)
 		if strings.Contains(l, "http") {
 			idx := strings.Index(l, "http")
-			res = append(res, l[idx:])
+			u := l[idx:]
+			if escapeIdx := strings.Index(u, "\x1b"); escapeIdx != -1 {
+				u = u[:escapeIdx]
+			}
+			if spaceIdx := strings.Index(u, " "); spaceIdx != -1 {
+				u = u[:spaceIdx]
+			}
+			u = strings.TrimSpace(u)
+			res = append(res, u)
 		}
 	}
 	return res
@@ -111,7 +119,15 @@ func RunCariddi(urls []string) ([]string, []core.Finding) {
 			}
 		} else if strings.Contains(line, "http") {
 			idx := strings.Index(line, "http")
-			outUrls = append(outUrls, line[idx:])
+			u := line[idx:]
+			if escapeIdx := strings.Index(u, "\x1b"); escapeIdx != -1 {
+				u = u[:escapeIdx]
+			}
+			if spaceIdx := strings.Index(u, " "); spaceIdx != -1 {
+				u = u[:spaceIdx]
+			}
+			u = strings.TrimSpace(u)
+			outUrls = append(outUrls, u)
 		}
 	}
 	return outUrls, findings

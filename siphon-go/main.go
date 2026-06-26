@@ -283,38 +283,43 @@ func main() {
 		// 3. JS Extraction & Filter
 		pbExtract, _ := pterm.DefaultProgressbar.WithTotal(2).WithTitle("3. JS Extraction").WithWriter(core.Multi.NewWriter()).Start()
 		
-		var actualPathFilter string
 		var jsSet []string
+
 		if *pathFilter != "" {
-			actualPathFilter = *pathFilter
-			if strings.HasPrefix(actualPathFilter, "http") {
-				if strings.Count(actualPathFilter, "/") >= 3 {
-					parts := strings.SplitN(actualPathFilter, "/", 4)
-					if len(parts) > 3 {
-						actualPathFilter = "/" + parts[3]
-					} else {
-						actualPathFilter = ""
+			core.Logf("\n  %s→%s  Path Filter active: Scraping HTML of specific path directly for JS targets...\n", core.MAGENTA, core.RESET)
+			var targetPaths []string
+			if strings.HasPrefix(*pathFilter, "http") {
+				targetPaths = append(targetPaths, *pathFilter)
+			} else {
+				for _, h := range live {
+					h = strings.TrimRight(h, "/")
+					p := *pathFilter
+					if !strings.HasPrefix(p, "/") {
+						p = "/" + p
 					}
-				} else {
-					actualPathFilter = ""
+					targetPaths = append(targetPaths, h+p)
 				}
 			}
-		}
+			
+			jsSet = append(jsSet, collector.ActiveHTMLScrape(targetPaths)...)
+			pbExtract.Add(1)
 
-		for _, u := range allUrls {
-			lu := strings.ToLower(u)
-			if strings.HasSuffix(lu, ".js") || strings.Contains(lu, ".js?") || strings.Contains(lu, ".js#") {
-				if actualPathFilter != "" && !strings.Contains(lu, strings.ToLower(actualPathFilter)) {
-					continue
+			bruteUrls := collector.BruteJSPaths(live, *pathFilter)
+			jsSet = append(jsSet, bruteUrls...)
+			pbExtract.Add(1)
+		} else {
+			for _, u := range allUrls {
+				lu := strings.ToLower(u)
+				if strings.HasSuffix(lu, ".js") || strings.Contains(lu, ".js?") || strings.Contains(lu, ".js#") {
+					jsSet = append(jsSet, u)
 				}
-				jsSet = append(jsSet, u)
 			}
-		}
-		pbExtract.Add(1)
+			pbExtract.Add(1)
 
-		bruteUrls := collector.BruteJSPaths(live, *pathFilter)
-		jsSet = append(jsSet, bruteUrls...)
-		pbExtract.Add(1)
+			bruteUrls := collector.BruteJSPaths(live, "")
+			jsSet = append(jsSet, bruteUrls...)
+			pbExtract.Add(1)
+		}
 
 		jsAll = core.Dedup(jsSet)
 		jsCustom = downloader.FilterJS(jsAll)
