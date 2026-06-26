@@ -5,7 +5,7 @@ import (
 	"github.com/pterm/pterm"
 )
 
-var Multi pterm.MultiPrinter
+var Multi *pterm.MultiPrinter
 
 func InitUI() {
 	// Disable pterm's prefix on info to match our custom style
