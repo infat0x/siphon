@@ -298,3 +298,117 @@ func CheckGitExposure(liveHosts []string, gitDir string, threads int) []string {
 	
 	return dumpPaths
 }
+
+func ScanCariddi(dlMap map[string]string, rawDir string) []core.Finding {
+	var findings []core.Finding
+	var urls []string
+	for u, p := range dlMap {
+		if p != "" && p != "/dev/null" {
+			urls = append(urls, u)
+		}
+	}
+	if len(urls) == 0 {
+		return findings
+	}
+
+	urlListPath := filepath.Join(rawDir, "_cariddi_urls.txt")
+	os.WriteFile(urlListPath, []byte(strings.Join(urls, "\n")+"\n"), 0644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd", "/c", "type", urlListPath, "|", "cariddi", "-s", "-json")
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", "cat "+urlListPath+" | cariddi -s -json")
+	}
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	_ = cmd.Run()
+
+	out := stdout.String()
+	os.WriteFile(filepath.Join(rawDir, "cariddi_findings.txt"), []byte(out), 0644)
+
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &obj); err == nil {
+			urlStr := ""
+			if u, ok := obj["url"].(string); ok {
+				urlStr = u
+			}
+			match := ""
+			if m, ok := obj["secret"].(string); ok {
+				match = m
+			}
+			if match == "" {
+				if d, ok := obj["data"].(string); ok {
+					match = d
+				}
+			}
+			if match == "" {
+				match = line
+			}
+			findings = append(findings, core.Finding{
+				Tool:  "cariddi",
+				Type:  "secret",
+				URL:   urlStr,
+				File:  "",
+				Match: match,
+			})
+		}
+	}
+	return findings
+}
+
+func ScanSubjs(dlMap map[string]string, rawDir string) []core.Finding {
+	var findings []core.Finding
+	var urls []string
+	for u, p := range dlMap {
+		if p != "" && p != "/dev/null" {
+			urls = append(urls, u)
+		}
+	}
+	if len(urls) == 0 {
+		return findings
+	}
+
+	urlListPath := filepath.Join(rawDir, "_subjs_urls.txt")
+	os.WriteFile(urlListPath, []byte(strings.Join(urls, "\n")+"\n"), 0644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd", "/c", "type", urlListPath, "|", "subjs")
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", "cat "+urlListPath+" | subjs")
+	}
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	_ = cmd.Run()
+
+	out := stdout.String()
+	os.WriteFile(filepath.Join(rawDir, "subjs_findings.txt"), []byte(out), 0644)
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		findings = append(findings, core.Finding{
+			Tool:  "subjs",
+			Type:  "endpoint",
+			URL:   line, // subjs outputs the found url
+			File:  "",
+			Match: line,
+		})
+	}
+	return findings
+}

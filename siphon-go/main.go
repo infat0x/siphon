@@ -232,11 +232,6 @@ func main() {
 				{"Katana", collector.RunKatana},
 				{"Waybackurls", collector.RunWaybackurls},
 				{"Hakrawler", collector.RunHakrawler},
-				{"Subjs", collector.RunSubjs},
-				{"Cariddi", func(urls []string) []string {
-					res, _ := collector.RunCariddi(urls)
-					return res
-				}},
 			}
 
 			for _, t := range tools {
@@ -384,6 +379,8 @@ func main() {
 	runScanner("Gitleaks", func() []core.Finding { return scanner.ScanGitleaks(dirs["dl"], dirs["raw"]) })
 	runScanner("Jsleak", func() []core.Finding { return scanner.ScanJsleak(dlMap, dirs["raw"]) })
 	runScanner("Jsluice", func() []core.Finding { return scanner.ScanJsluice(dlMap, dirs["raw"]) })
+	runScanner("Cariddi", func() []core.Finding { return scanner.ScanCariddi(dlMap, dirs["raw"]) })
+	runScanner("Subjs", func() []core.Finding { return scanner.ScanSubjs(dlMap, dirs["raw"]) })
 	runScanner("Nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"]) })
 
 	wg.Wait()
