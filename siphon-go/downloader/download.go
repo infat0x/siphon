@@ -135,15 +135,7 @@ func DownloadJS(urls []string, dlDir string, threads int, pb *pterm.ProgressbarP
 		go func() {
 			defer wg.Done()
 			for urlStr := range urlChan {
-				var finalPath string
-				var err error
-				for attempt := 0; attempt < 3; attempt++ {
-					finalPath, err = attemptDownload(client, urlStr, dlDir, &seenHashes)
-					if err == nil {
-						break
-					}
-					time.Sleep(100 * time.Millisecond)
-				}
+				finalPath, _ := attemptDownload(client, urlStr, dlDir, &seenHashes)
 
 				if finalPath != "" {
 					downloaded.Store(urlStr, finalPath)
