@@ -266,6 +266,7 @@ func main() {
 		pbExtract, _ := pterm.DefaultProgressbar.WithTotal(2).WithTitle("3. JS Extraction").WithWriter(core.Multi.NewWriter()).Start()
 		
 		var actualPathFilter string
+		var jsSet []string
 		if *pathFilter != "" {
 			actualPathFilter = *pathFilter
 			if strings.HasPrefix(actualPathFilter, "http") {
