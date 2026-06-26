@@ -189,7 +189,7 @@ func main() {
 		core.Logf("  %s✔%s  1. Live Host Detection [%d hosts]\n", core.GREEN, core.RESET, len(live))
 
 		// 2. URL Collection
-		pbUrl := core.StartProgressBar(7, "2. URL Collection (Passive+Active)")
+		pbUrl, _ := pterm.DefaultProgressbar.WithTotal(7).WithTitle("2. URL Collection (Passive+Active)").WithWriter(core.Multi.NewWriter()).Start()
 		urlsFile := filepath.Join(dirs["urls"], "all_urls.txt")
 		var allUrls []string
 
@@ -255,7 +255,7 @@ func main() {
 		core.Logf("  %s✔%s  2. URL Collection [%d URLs]\n", core.GREEN, core.RESET, len(allUrls))
 
 		// 3. JS Extraction & Filter
-		pbExtract := core.StartProgressBar(2, "3. JS Extraction")
+		pbExtract, _ := pterm.DefaultProgressbar.WithTotal(2).WithTitle("3. JS Extraction").WithWriter(core.Multi.NewWriter()).Start()
 		
 		var jsSet []string
 		for _, u := range allUrls {
@@ -308,7 +308,7 @@ func main() {
 	
 	scanner.CheckGitExposure(live, dirs["git"], *threads)
 
-	pbScan := core.StartProgressBar(6, "5. Secret Scanning")
+	pbScan, _ := pterm.DefaultProgressbar.WithTotal(6).WithTitle("5. Secret Scanning").WithWriter(core.Multi.NewWriter()).Start()
 
 	var allFindings []core.Finding
 	var mu sync.Mutex
