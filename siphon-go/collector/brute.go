@@ -41,11 +41,26 @@ func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 	var found []string
 	var mu sync.Mutex
 
-	if pathFilter != "" && !strings.HasPrefix(pathFilter, "/") {
-		pathFilter = "/" + pathFilter
-	}
-	pathFilter = strings.TrimRight(pathFilter, "/")
+	if pathFilter != "" {
+		if strings.HasPrefix(pathFilter, "http") {
+			// Extract path from full URL
+			if strings.Count(pathFilter, "/") >= 3 {
+				parts := strings.SplitN(pathFilter, "/", 4)
+				if len(parts) > 3 {
+					pathFilter = "/" + parts[3]
+				} else {
+					pathFilter = ""
+				}
+			} else {
+				pathFilter = ""
+			}
+		}
 
+		if pathFilter != "" && !strings.HasPrefix(pathFilter, "/") {
+			pathFilter = "/" + pathFilter
+		}
+		pathFilter = strings.TrimRight(pathFilter, "/")
+	}
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: core.GlobalConfig.Insecure},
 		MaxIdleConns:    200,

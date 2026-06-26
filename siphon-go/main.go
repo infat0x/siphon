@@ -59,7 +59,7 @@ func main() {
 	
 	flag.Parse()
 
-	if *outDir == "" || (*domain == "" && *subs == "" && *jsUrl == "") {
+	if *outDir == "" || (*domain == "" && *subs == "" && *jsUrl == "" && *pathFilter == "") {
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -137,6 +137,14 @@ func main() {
 			os.WriteFile(tmpSubs, []byte(domainUrl+"\n"), 0644)
 			subsList = []string{domainUrl}
 			core.Logf("  %s→%s  Mode   : %ssingle-domain%s  →  %s\n", core.MAGENTA, core.RESET, core.BOLD, core.RESET, domainUrl)
+		} else if *pathFilter != "" && strings.HasPrefix(*pathFilter, "http") {
+			// Extract domain from URL provided in pathFilter to run scan
+			singleDomain = true
+			domainUrl := core.NormaliseHost(*pathFilter)
+			tmpSubs := filepath.Join(*outDir, "_domain_input.txt")
+			os.WriteFile(tmpSubs, []byte(domainUrl+"\n"), 0644)
+			subsList = []string{domainUrl}
+			core.Logf("  %s→%s  Mode   : %ssingle-domain%s (extracted from path)  →  %s\n", core.MAGENTA, core.RESET, core.BOLD, core.RESET, domainUrl)
 		} else if *subs != "" {
 			data, err := os.ReadFile(*subs)
 			if err != nil {
@@ -257,11 +265,27 @@ func main() {
 		// 3. JS Extraction & Filter
 		pbExtract, _ := pterm.DefaultProgressbar.WithTotal(2).WithTitle("3. JS Extraction").WithWriter(core.Multi.NewWriter()).Start()
 		
-		var jsSet []string
+		var actualPathFilter string
+		if *pathFilter != "" {
+			actualPathFilter = *pathFilter
+			if strings.HasPrefix(actualPathFilter, "http") {
+				if strings.Count(actualPathFilter, "/") >= 3 {
+					parts := strings.SplitN(actualPathFilter, "/", 4)
+					if len(parts) > 3 {
+						actualPathFilter = "/" + parts[3]
+					} else {
+						actualPathFilter = ""
+					}
+				} else {
+					actualPathFilter = ""
+				}
+			}
+		}
+
 		for _, u := range allUrls {
 			lu := strings.ToLower(u)
 			if strings.HasSuffix(lu, ".js") || strings.Contains(lu, ".js?") || strings.Contains(lu, ".js#") {
-				if *pathFilter != "" && !strings.Contains(lu, strings.ToLower(*pathFilter)) {
+				if actualPathFilter != "" && !strings.Contains(lu, strings.ToLower(actualPathFilter)) {
 					continue
 				}
 				jsSet = append(jsSet, u)
