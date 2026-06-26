@@ -15,10 +15,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"runtime"
 )
 
 func runCmd(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmdArgs := append([]string{"/c", name}, args...)
+		cmd = exec.CommandContext(ctx, "cmd", cmdArgs...)
+	} else {
+		cmd = exec.CommandContext(ctx, name, args...)
+	}
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	err := cmd.Run()
@@ -30,7 +37,7 @@ func ScanTrufflehog(dlDir string, rawDir string) []core.Finding {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	out, _ := runCmd(ctx, "trufflehog", "filesystem", "--directory", dlDir, "--json", "--no-update")
+	out, _ := runCmd(ctx, "trufflehog", "filesystem", dlDir, "--json", "--no-verification", "--no-update")
 	os.WriteFile(filepath.Join(rawDir, "trufflehog.json"), []byte(out), 0644)
 
 	for _, line := range strings.Split(out, "\n") {
@@ -75,7 +82,7 @@ func ScanGitleaks(dlDir string, rawDir string) []core.Finding {
 	defer cancel()
 
 	reportPath := filepath.Join(rawDir, "gitleaks.json")
-	_, _ = runCmd(ctx, "gitleaks", "detect", "--source", dlDir, "--no-git", "--report-format", "json", "--report-path", reportPath, "--exit-code", "0", "--log-level", "warn")
+	_, _ = runCmd(ctx, "gitleaks", "detect", "--source", dlDir, "--no-git", "--report-format", "json", "--report-path", reportPath, "--exit-code", "0", "--log-level", "warn", "--redact=false")
 
 	data, err := os.ReadFile(reportPath)
 	if err != nil {
@@ -103,7 +110,7 @@ func ScanJsluice(dlMap map[string]string, rawDir string) []core.Finding {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	sem := make(chan struct{}, 20)
+	sem := make(chan struct{}, 50)
 
 	for url, path := range dlMap {
 		if path == "" || path == "/dev/null" {
@@ -116,11 +123,14 @@ func ScanJsluice(dlMap map[string]string, rawDir string) []core.Finding {
 			defer func() { <-sem }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			out, _ := runCmd(ctx, "jsluice", "secrets", fpath)
+			outSec, _ := runCmd(ctx, "jsluice", "secrets", fpath)
+			outUrl, _ := runCmd(ctx, "jsluice", "urls", fpath)
 			cancel()
 
 			var localFindings []core.Finding
-			for _, line := range strings.Split(out, "\n") {
+			
+			// Parse secrets
+			for _, line := range strings.Split(outSec, "\n") {
 				if line == "" {
 					continue
 				}
@@ -134,6 +144,23 @@ func ScanJsluice(dlMap map[string]string, rawDir string) []core.Finding {
 						File:  fpath,
 						Match: fmt.Sprintf("%v", dataMap["match"]),
 						Line:  fmt.Sprintf("%v", obj["line"]),
+					})
+				}
+			}
+
+			// Parse urls
+			for _, line := range strings.Split(outUrl, "\n") {
+				if line == "" {
+					continue
+				}
+				var obj map[string]interface{}
+				if err := json.Unmarshal([]byte(line), &obj); err == nil {
+					localFindings = append(localFindings, core.Finding{
+						Tool:  "jsluice",
+						Type:  "endpoint",
+						URL:   urlStr,
+						File:  fpath,
+						Match: fmt.Sprintf("%v", obj["url"]),
 					})
 				}
 			}
@@ -162,7 +189,7 @@ func ScanNuclei(jsUrls []string, rawDir string) []core.Finding {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	_, _ = runCmd(ctx, "nuclei", "-l", urlListPath, "-t", "http/exposures/", "-silent", "-no-color", "-json", "-o", reportPath, "-rate-limit", "50", "-concurrency", "20", "-timeout", "10", "-no-update-templates")
+	_, _ = runCmd(ctx, "nuclei", "-l", urlListPath, "-tags", "exposure,token,javascript,config", "-silent", "-no-color", "-json", "-o", reportPath, "-rate-limit", "50", "-concurrency", "20", "-timeout", "10", "-no-update-templates")
 
 	data, err := os.ReadFile(reportPath)
 	if err != nil {
@@ -196,7 +223,7 @@ func ScanJsleak(dlMap map[string]string, rawDir string) []core.Finding {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	sem := make(chan struct{}, 20)
+	sem := make(chan struct{}, 50)
 
 	for url, path := range dlMap {
 		if path == "" || path == "/dev/null" {
