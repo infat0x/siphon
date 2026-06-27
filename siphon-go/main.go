@@ -351,7 +351,7 @@ func main() {
 	
 	scanner.CheckGitExposure(live, dirs["git"], *threads)
 
-	pbScan, _ := pterm.DefaultProgressbar.WithTotal(6).WithTitle("5. Secret Scanning").WithWriter(core.Multi.NewWriter()).Start()
+	pbScan, _ := pterm.DefaultProgressbar.WithTotal(14).WithTitle("5. Secret Scanning (14 engines)").WithWriter(core.Multi.NewWriter()).Start()
 
 	var allFindings []core.Finding
 	var mu sync.Mutex
@@ -374,6 +374,7 @@ func main() {
 		}()
 	}
 
+	// ── Original Scanners (improved) ──────────────────────────────────────
 	runScanner("Regex", func() []core.Finding { return scanner.ScanRegex(dlMap) })
 	runScanner("Trufflehog", func() []core.Finding { return scanner.ScanTrufflehog(dirs["dl"], dirs["raw"]) })
 	runScanner("Gitleaks", func() []core.Finding { return scanner.ScanGitleaks(dirs["dl"], dirs["raw"]) })
@@ -382,6 +383,14 @@ func main() {
 	runScanner("Cariddi", func() []core.Finding { return scanner.ScanCariddi(dlMap, dirs["raw"]) })
 	runScanner("Subjs", func() []core.Finding { return scanner.ScanSubjs(dlMap, dirs["raw"]) })
 	runScanner("Nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"]) })
+
+	// ── New Native Engines ────────────────────────────────────────────────
+	runScanner("Entropy", func() []core.Finding { return scanner.ScanEntropy(dlMap) })
+	runScanner("Base64/Encoded", func() []core.Finding { return scanner.ScanBase64(dlMap) })
+	runScanner("InlineAssign", func() []core.Finding { return scanner.ScanInlineAssign(dlMap) })
+	runScanner("SourceMaps", func() []core.Finding { return scanner.ScanSourceMaps(dlMap, dirs["raw"]) })
+	runScanner("ConfigLeaks", func() []core.Finding { return scanner.ScanConfigLeaks(live, dlMap, dirs["raw"]) })
+	runScanner("Mantra", func() []core.Finding { return scanner.ScanMantra(dlMap, dirs["raw"]) })
 
 	wg.Wait()
 	reverseMap := make(map[string]string)
@@ -398,7 +407,7 @@ func main() {
 		}
 	}
 
-	core.Logf("  %s✔%s  5. Secret Scanning [%s%d%s total findings]\n", core.GREEN, core.RESET, core.RED, len(allFindings), core.RESET)
+	core.Logf("  %s✔%s  5. Secret Scanning [%s%d%s total findings from 14 engines]\n", core.GREEN, core.RESET, core.RED, len(allFindings), core.RESET)
 
 	scanner.WriteReport(allFindings, filepath.Join(dirs["secrets"], "final_report.txt"), stats)
 }

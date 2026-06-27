@@ -4,14 +4,17 @@ import "sync"
 
 // Finding represents a single discovered secret or exposure.
 type Finding struct {
-	Tool    string `json:"tool"`
-	Type    string `json:"type"`
-	URL     string `json:"url"`
-	File    string `json:"file"`
-	Match   string `json:"match"`
-	Line    string `json:"line"`
-	Entropy string `json:"entropy"`
-	Context string `json:"context,omitempty"`
+	Tool         string `json:"tool"`
+	Type         string `json:"type"`
+	URL          string `json:"url"`
+	File         string `json:"file"`
+	Match        string `json:"match"`
+	Line         string `json:"line"`
+	Entropy      string `json:"entropy"`
+	Context      string `json:"context,omitempty"`
+	Severity     string `json:"severity,omitempty"`     // CRITICAL, HIGH, MEDIUM, LOW, INFO
+	Confidence   int    `json:"confidence,omitempty"`    // 0-100
+	DecodedMatch string `json:"decoded_match,omitempty"` // Decoded value for base64/hex/url-encoded secrets
 }
 
 // Config holds global flags.

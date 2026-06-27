@@ -2,7 +2,7 @@ package scanner
 
 import "strings"
 
-var FalsePositiveRe = `(?i)(application/(json|xml|javascript|x-www-form-urlencoded)|text/(html|plain|xml|javascript)|image/(png|jpeg|gif|svg\+xml)|charset|utf-8|content-type|border-[a-z]+|background-[a-z]+|font-[a-z]+|box-shadow|text-align|margin-[a-z]+|padding-[a-z]+|display:\s*(none|block|inline)|position:\s*(absolute|relative)|index\.js|main\.js|vendor\.js|app\.js|bundle\.js|/api/v\d+/|/oauth/token|/auth/login|/users/|/products/|/api/public|jquery|bootstrap|angular|react|vue|moment|lodash|localhost|127\.0\.0\.1)`
+var FalsePositiveRe = `(?i)(application/(json|xml|javascript|x-www-form-urlencoded|octet-stream|pdf|zip)|text/(html|plain|xml|javascript|css)|image/(png|jpeg|gif|svg\+xml|webp|avif)|audio/(mp3|wav|ogg)|video/(mp4|webm)|multipart/form-data|charset|utf-8|utf-16|iso-8859|content-type|content-length|content-encoding|accept-encoding|accept-language|cache-control|border-[a-z]+|background-[a-z]+|font-[a-z]+|box-shadow|text-align|text-decoration|text-transform|margin-[a-z]+|padding-[a-z]+|display:\s*(none|block|inline|flex|grid)|position:\s*(absolute|relative|fixed|sticky)|overflow:\s*(hidden|auto|scroll)|z-index|opacity|transform|transition|animation|cursor:\s*pointer|visibility|float:\s*(left|right)|clear:\s*(both|left|right)|vertical-align|line-height|letter-spacing|word-spacing|white-space|list-style|border-radius|box-sizing|flex-direction|justify-content|align-items|grid-template|media\s*\(|@keyframes|@import|@font-face|index\.js|main\.js|vendor\.js|app\.js|bundle\.js|chunk\.js|runtime\.js|polyfill|webpack|sourceMappingURL|sourceURL|/api/v\d+/|/oauth/token|/auth/login|/users/|/products/|/api/public|/static/|/assets/|/media/|/images/|/fonts/|/css/|/js/|node_modules|jquery|bootstrap|angular|react|vue|moment|lodash|underscore|backbone|ember|svelte|solid|preact|next|nuxt|gatsby|remix|tailwind|bulma|materialize|foundation|semantic-ui|antd|chakra|mantine|radix|headless|heroicons|lucide|phosphor|fontawesome|ionicons|material-icons|modernizr|normalize|animate\.css|scrollreveal|aos|gsap|three\.js|d3\.js|chart\.js|pixi|phaser|babylon|socket\.io|axios|fetch|superagent|got|request|express|fastify|koa|hapi|nestjs|graphql|prisma|sequelize|typeorm|mongoose|knex|passport|bcrypt|jsonwebtoken|cors|helmet|morgan|winston|pino|dayjs|luxon|date-fns|uuid|nanoid|slugify|validator|joi|yup|zod|formik|react-hook-form|redux|mobx|zustand|jotai|recoil|valtio|tanstack|swr|react-query|framer-motion|spring|playwright|cypress|jest|mocha|chai|vitest|storybook|chromatic|babel|esbuild|rollup|vite|parcel|turbopack|swc|terser|postcss|autoprefixer|sass|less|stylus|tailwindcss|localhost|127\.0\.0\.1|0\.0\.0\.0|example\.com|test\.com|placeholder|lorem|ipsum|dolor|amet|hello|world|foo|bar|baz|qux|sample|demo|dummy|mock|fixture|stub|spec|_test|_spec|__test__|__mock__|undefined|null|true|false|NaN|Infinity|Object|Array|String|Number|Boolean|Function|Symbol|BigInt|Map|Set|WeakMap|WeakSet|Promise|Proxy|Reflect|Math\.|Date\.|JSON\.|RegExp|Error|TypeError|RangeError|SyntaxError|ReferenceError|console\.|document\.|window\.|navigator\.|location\.|history\.|screen\.|performance\.|addEventListener|removeEventListener|querySelector|getElementById|getElementsBy|createElement|appendChild|removeChild|innerHTML|textContent|className|classList|setAttribute|getAttribute|style\.|prototype\.|constructor|__proto__|hasOwnProperty|toString|valueOf|length|push|pop|shift|unshift|splice|slice|concat|join|map|filter|reduce|forEach|find|findIndex|includes|indexOf|sort|reverse|every|some|flat|flatMap|keys|values|entries|from|isArray|assign|create|freeze|seal|defineProperty|getOwnPropertyNames|getPrototypeOf|setPrototypeOf|is|parse|stringify|parseInt|parseFloat|isNaN|isFinite|encodeURI|decodeURI|encodeURIComponent|decodeURIComponent|setTimeout|setInterval|clearTimeout|clearInterval|requestAnimationFrame|cancelAnimationFrame|fetch|XMLHttpRequest|WebSocket|EventSource|FormData|URLSearchParams|AbortController|TextEncoder|TextDecoder|Blob|File|FileReader|Response|Request|Headers|URL|atob|btoa)`
 
 var SecretPatterns = map[string]string{
 	// ── Original patterns ─────────────────────────────────────────────────────
@@ -85,6 +85,45 @@ var SecretPatterns = map[string]string{
 	"Neon DB Connection":       `(?i)postgresql://[^:]+:[^@]+@[a-z0-9.-]+\.neon\.tech/[a-z0-9_]+`,
 	"MongoDB Atlas URI":        `(?i)mongodb\+srv://[^:]+:[^@]+@[a-z0-9.-]+\.mongodb\.net`,
 	"Elastic Cloud ID":         `(?i)cloud\.id\s*[:=]\s*['"][a-zA-Z0-9_-]+:[a-zA-Z0-9+/=]+['"]`,
+
+	// ── 2024-2025 New Service Patterns ─────────────────────────────────────
+	"Clerk Secret Key":         `sk_live_[a-zA-Z0-9]{27,}`,
+	"Clerk Publishable Key":    `pk_live_[a-zA-Z0-9]{27,}`,
+	"Clerk Test Secret":        `sk_test_[a-zA-Z0-9]{27,}`,
+	"Resend API Key":           `re_[a-zA-Z0-9]{27,}`,
+	"Upstash Redis Token":      `(?i)upstash.{0,20}token.{0,10}[:=]\s*['"][a-zA-Z0-9_-]{30,}['"]`,
+	"Upstash Redis URL":        `(?i)https://[a-z0-9-]+\.upstash\.io`,
+	"Turso Auth Token":         `(?i)turso.{0,15}token.{0,10}[:=]\s*['"][a-zA-Z0-9._-]{100,}['"]`,
+	"Turso DB URL":             `(?i)libsql://[a-z0-9-]+\.turso\.io`,
+	"Neon DB Token":            `(?i)neon.{0,15}(token|key).{0,10}[:=]\s*['"][a-zA-Z0-9_-]{30,}['"]`,
+	"Supabase Anon Key":        `(?i)supabase.{0,20}(anon|public).{0,10}[:=]\s*['"]eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+['"]`,
+	"Vercel Token v2":          `(?i)vercel.{0,15}[:=]\s*['"][a-zA-Z0-9]{24,}['"]`,
+	"Railway Token v2":         `(?i)railway.{0,15}[:=]\s*['"][a-zA-Z0-9_-]{36,}['"]`,
+	"Fly.io Token":             `(?i)fly.{0,15}(token|key).{0,10}[:=]\s*['"][a-zA-Z0-9_-]{40,}['"]`,
+	"Fly.io API Token":         `FlyV1\s+[a-zA-Z0-9_-]{40,}`,
+	"Notion API Key":           `secret_[a-zA-Z0-9]{43}`,
+	"Airtable PAT":             `pat[a-zA-Z0-9]{14}\.[a-f0-9]{64}`,
+	"Linear API Key":           `lin_api_[a-zA-Z0-9]{40}`,
+	"Doppler Token":            `dp\.st\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9]{40,}`,
+	"Planetscale Token v2":     `pscale_tkn_[a-zA-Z0-9_.]{40,}`,
+	"Grafana API Key":          `(?i)grafana.{0,15}[:=]\s*['"]eyJ[a-zA-Z0-9_-]+['"]`,
+	"Grafana Cloud Token":      `glc_[a-zA-Z0-9+/=]{32,}`,
+	"Grafana Service Account":  `glsa_[a-zA-Z0-9_]{32}_[a-f0-9]{8}`,
+	"Postman API Key":          `PMAK-[a-f0-9]{24}-[a-f0-9]{34}`,
+	"Livekit API Key":          `API[a-zA-Z0-9]{20,}`,
+	"OpenAI API Key":           `sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20}`,
+	"OpenAI Project Key":       `sk-proj-[a-zA-Z0-9_-]{40,}`,
+	"Anthropic API Key":        `sk-ant-[a-zA-Z0-9_-]{90,}`,
+	"Cohere API Key":           `(?i)cohere.{0,15}[:=]\s*['"][a-zA-Z0-9]{40}['"]`,
+	"Replicate API Token":      `r8_[a-zA-Z0-9]{40}`,
+	"HuggingFace Token":        `hf_[a-zA-Z0-9]{34}`,
+	"Pinata API Key":           `(?i)pinata.{0,15}[:=]\s*['"][a-f0-9]{64}['"]`,
+	"Pinata JWT":               `(?i)pinata.{0,15}jwt.{0,10}[:=]\s*['"]eyJ[a-zA-Z0-9_-]+['"]`,
+	"Contentful Delivery Token":`(?i)contentful.{0,20}(delivery|preview|management).{0,10}[:=]\s*['"][a-zA-Z0-9_-]{40,}['"]`,
+	"Sanity Token":             `sk[a-zA-Z0-9]{40,}`,
+	"Prismic Token":            `(?i)prismic.{0,15}[:=]\s*['"][a-zA-Z0-9_-]{40,}['"]`,
+	"Directus Token":           `(?i)directus.{0,15}(token|key).{0,10}[:=]\s*['"][a-zA-Z0-9_-]{30,}['"]`,
+	"Tigris Token":             `tid_[a-zA-Z0-9_]{40,}`,
 
 	// ── Source control / CI/CD ────────────────────────────────────────────────
 	"GitHub PAT (classic)":    `ghp_[0-9a-zA-Z]{36}`,

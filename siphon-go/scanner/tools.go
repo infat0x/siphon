@@ -11,11 +11,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"siphon-go/core"
 	"strings"
 	"sync"
 	"time"
-	"runtime"
 )
 
 func runCmd(ctx context.Context, name string, args ...string) (string, error) {
@@ -64,12 +64,42 @@ func ScanTrufflehog(dlDir string, rawDir string) []core.Finding {
 				filePath = fmt.Sprintf("%v", obj["SourceMetadata"])
 			}
 
+			// Determine if verified
+			verified := false
+			if v, ok := obj["Verified"].(bool); ok {
+				verified = v
+			}
+
+			severity := "HIGH"
+			confidence := 70
+			if verified {
+				severity = "CRITICAL"
+				confidence = 95
+			}
+
+			detectorName := fmt.Sprintf("%v", obj["DetectorName"])
+			rawMatch := fmt.Sprintf("%v", obj["Raw"])
+
+			// Boost confidence for known high-value detectors
+			highValueDetectors := []string{"AWS", "GCP", "Azure", "Stripe", "GitHub", "Slack", "Twilio", "SendGrid"}
+			for _, hvd := range highValueDetectors {
+				if strings.Contains(detectorName, hvd) {
+					confidence += 10
+					break
+				}
+			}
+			if confidence > 100 {
+				confidence = 100
+			}
+
 			findings = append(findings, core.Finding{
-				Tool:  "trufflehog",
-				Type:  fmt.Sprintf("%v", obj["DetectorName"]),
-				URL:   filePath, // Will be mapped to original URL in main.go
-				File:  filePath,
-				Match: fmt.Sprintf("%v", obj["Raw"]),
+				Tool:       "trufflehog",
+				Type:       detectorName,
+				URL:        filePath, // Will be mapped to original URL in main.go
+				File:       filePath,
+				Match:      rawMatch,
+				Severity:   severity,
+				Confidence: confidence,
 			})
 		}
 	}
@@ -92,13 +122,40 @@ func ScanGitleaks(dlDir string, rawDir string) []core.Finding {
 	var results []map[string]interface{}
 	if err := json.Unmarshal(data, &results); err == nil {
 		for _, item := range results {
+			ruleID := fmt.Sprintf("%v", item["RuleID"])
+			match := fmt.Sprintf("%v", item["Match"])
+			secret := fmt.Sprintf("%v", item["Secret"])
+			entropy := core.ShannonEntropy(secret)
+
+			// Severity based on rule type
+			severity := "MEDIUM"
+			confidence := 60
+
+			highSeverityRules := []string{"private-key", "aws", "gcp", "azure", "stripe", "github", "gitlab", "slack", "twilio", "sendgrid", "database", "postgres", "mysql", "mongodb", "redis"}
+			for _, hsr := range highSeverityRules {
+				if strings.Contains(strings.ToLower(ruleID), hsr) {
+					severity = "HIGH"
+					confidence = 75
+					break
+				}
+			}
+
+			if entropy > 4.5 {
+				confidence += 10
+			}
+			if confidence > 100 {
+				confidence = 100
+			}
+
 			findings = append(findings, core.Finding{
-				Tool:    "gitleaks",
-				Type:    fmt.Sprintf("%v", item["RuleID"]),
-				File:    fmt.Sprintf("%v", item["File"]),
-				Match:   fmt.Sprintf("%v", item["Match"]),
-				Line:    fmt.Sprintf("%v", item["StartLine"]),
-				Entropy: fmt.Sprintf("%.2f", core.ShannonEntropy(fmt.Sprintf("%v", item["Secret"]))),
+				Tool:       "gitleaks",
+				Type:       ruleID,
+				File:       fmt.Sprintf("%v", item["File"]),
+				Match:      match,
+				Line:       fmt.Sprintf("%v", item["StartLine"]),
+				Entropy:    fmt.Sprintf("%.2f", entropy),
+				Severity:   severity,
+				Confidence: confidence,
 			})
 		}
 	}
@@ -137,13 +194,36 @@ func ScanJsluice(dlMap map[string]string, rawDir string) []core.Finding {
 				var obj map[string]interface{}
 				if err := json.Unmarshal([]byte(line), &obj); err == nil {
 					dataMap, _ := obj["data"].(map[string]interface{})
+					matchStr := fmt.Sprintf("%v", dataMap["match"])
+
+					severity := "MEDIUM"
+					confidence := 55
+					kind := fmt.Sprintf("%v", obj["kind"])
+
+					// Boost for specific kinds
+					if strings.Contains(strings.ToLower(kind), "api") || strings.Contains(strings.ToLower(kind), "secret") || strings.Contains(strings.ToLower(kind), "token") {
+						severity = "HIGH"
+						confidence = 70
+					}
+
+					entropy := core.ShannonEntropy(matchStr)
+					if entropy > 4.0 {
+						confidence += 10
+					}
+					if confidence > 100 {
+						confidence = 100
+					}
+
 					localFindings = append(localFindings, core.Finding{
-						Tool:  "jsluice",
-						Type:  fmt.Sprintf("%v", obj["kind"]),
-						URL:   urlStr,
-						File:  fpath,
-						Match: fmt.Sprintf("%v", dataMap["match"]),
-						Line:  fmt.Sprintf("%v", obj["line"]),
+						Tool:       "jsluice",
+						Type:       kind,
+						URL:        urlStr,
+						File:       fpath,
+						Match:      matchStr,
+						Line:       fmt.Sprintf("%v", obj["line"]),
+						Entropy:    fmt.Sprintf("%.2f", entropy),
+						Severity:   severity,
+						Confidence: confidence,
 					})
 				}
 			}
@@ -156,11 +236,13 @@ func ScanJsluice(dlMap map[string]string, rawDir string) []core.Finding {
 				var obj map[string]interface{}
 				if err := json.Unmarshal([]byte(line), &obj); err == nil {
 					localFindings = append(localFindings, core.Finding{
-						Tool:  "jsluice",
-						Type:  "endpoint",
-						URL:   urlStr,
-						File:  fpath,
-						Match: fmt.Sprintf("%v", obj["url"]),
+						Tool:       "jsluice",
+						Type:       "endpoint",
+						URL:        urlStr,
+						File:       fpath,
+						Match:      fmt.Sprintf("%v", obj["url"]),
+						Severity:   "INFO",
+						Confidence: 30,
 					})
 				}
 			}
@@ -189,7 +271,12 @@ func ScanNuclei(jsUrls []string, rawDir string) []core.Finding {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	_, _ = runCmd(ctx, "nuclei", "-l", urlListPath, "-tags", "exposure,token,javascript,config", "-silent", "-no-color", "-json", "-o", reportPath, "-rate-limit", "50", "-concurrency", "20", "-timeout", "10", "-no-update-templates")
+	// Extended tags for better coverage
+	_, _ = runCmd(ctx, "nuclei", "-l", urlListPath,
+		"-tags", "exposure,token,javascript,config,secret,apikey,credential,leak,misconfiguration",
+		"-silent", "-no-color", "-json", "-o", reportPath,
+		"-rate-limit", "50", "-concurrency", "20", "-timeout", "10",
+		"-no-update-templates")
 
 	data, err := os.ReadFile(reportPath)
 	if err != nil {
@@ -203,19 +290,42 @@ func ScanNuclei(jsUrls []string, rawDir string) []core.Finding {
 		var obj map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &obj); err == nil {
 			info, _ := obj["info"].(map[string]interface{})
+			nucleiSeverity := strings.ToUpper(fmt.Sprintf("%v", info["severity"]))
+
+			// Map nuclei severity to our severity
+			severity := "MEDIUM"
+			confidence := 60
+			switch nucleiSeverity {
+			case "CRITICAL":
+				severity = "CRITICAL"
+				confidence = 90
+			case "HIGH":
+				severity = "HIGH"
+				confidence = 80
+			case "MEDIUM":
+				severity = "MEDIUM"
+				confidence = 65
+			case "LOW":
+				severity = "LOW"
+				confidence = 45
+			case "INFO":
+				severity = "INFO"
+				confidence = 30
+			}
+
 			findings = append(findings, core.Finding{
-				Tool:    "nuclei",
-				Type:    fmt.Sprintf("%v", obj["template-id"]),
-				URL:     fmt.Sprintf("%v", obj["matched-at"]),
-				Match:   fmt.Sprintf("%v", obj["extracted-results"]),
-				Context: fmt.Sprintf("severity=%v", info["severity"]),
+				Tool:       "nuclei",
+				Type:       fmt.Sprintf("%v", obj["template-id"]),
+				URL:        fmt.Sprintf("%v", obj["matched-at"]),
+				Match:      fmt.Sprintf("%v", obj["extracted-results"]),
+				Context:    fmt.Sprintf("severity=%v", info["severity"]),
+				Severity:   severity,
+				Confidence: confidence,
 			})
 		}
 	}
 	return findings
 }
-
-
 
 func ScanJsleak(dlMap map[string]string, rawDir string) []core.Finding {
 	var findings []core.Finding
@@ -247,13 +357,29 @@ func ScanJsleak(dlMap map[string]string, rawDir string) []core.Finding {
 					continue
 				}
 				localRaw = append(localRaw, urlStr+": "+line)
+
+				entropy := core.ShannonEntropy(line)
+				severity := "LOW"
+				confidence := 40
+
+				if entropy > 4.0 {
+					severity = "MEDIUM"
+					confidence = 55
+				}
+				if entropy > 5.0 {
+					severity = "HIGH"
+					confidence = 70
+				}
+
 				localFindings = append(localFindings, core.Finding{
-					Tool:    "jsleak",
-					Type:    "secret",
-					URL:     urlStr,
-					File:    fpath,
-					Match:   line,
-					Entropy: fmt.Sprintf("%.2f", core.ShannonEntropy(line)),
+					Tool:       "jsleak",
+					Type:       "secret",
+					URL:        urlStr,
+					File:       fpath,
+					Match:      line,
+					Entropy:    fmt.Sprintf("%.2f", entropy),
+					Severity:   severity,
+					Confidence: confidence,
 				})
 			}
 
@@ -353,12 +479,28 @@ func ScanCariddi(dlMap map[string]string, rawDir string) []core.Finding {
 			if match == "" {
 				match = line
 			}
+
+			entropy := core.ShannonEntropy(match)
+			severity := "LOW"
+			confidence := 40
+
+			if entropy > 4.0 {
+				severity = "MEDIUM"
+				confidence = 55
+			}
+			if entropy > 5.0 {
+				severity = "HIGH"
+				confidence = 70
+			}
+
 			findings = append(findings, core.Finding{
-				Tool:  "cariddi",
-				Type:  "secret",
-				URL:   urlStr,
-				File:  "",
-				Match: match,
+				Tool:       "cariddi",
+				Type:       "secret",
+				URL:        urlStr,
+				File:       "",
+				Match:      match,
+				Severity:   severity,
+				Confidence: confidence,
 			})
 		}
 	}
@@ -403,12 +545,134 @@ func ScanSubjs(dlMap map[string]string, rawDir string) []core.Finding {
 			continue
 		}
 		findings = append(findings, core.Finding{
-			Tool:  "subjs",
-			Type:  "endpoint",
-			URL:   line, // subjs outputs the found url
-			File:  "",
-			Match: line,
+			Tool:       "subjs",
+			Type:       "endpoint",
+			URL:        line,
+			File:       "",
+			Match:      line,
+			Severity:   "INFO",
+			Confidence: 25,
 		})
 	}
+	return findings
+}
+
+// ScanMantra runs the Mantra tool for JS API key leak detection
+func ScanMantra(dlMap map[string]string, rawDir string) []core.Finding {
+	var findings []core.Finding
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 30)
+
+	for urlStr, fpath := range dlMap {
+		if fpath == "" || fpath == "/dev/null" {
+			continue
+		}
+		wg.Add(1)
+		go func(u, fp string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			// Run mantra on the file content via stdin pipe
+			var cmd *exec.Cmd
+			if runtime.GOOS == "windows" {
+				cmd = exec.CommandContext(ctx, "cmd", "/c", "type", fp, "|", "mantra")
+			} else {
+				cmd = exec.CommandContext(ctx, "sh", "-c", "cat "+fp+" | mantra")
+			}
+
+			var stdout bytes.Buffer
+			cmd.Stdout = &stdout
+			_ = cmd.Run()
+
+			out := stdout.String()
+			var localFindings []core.Finding
+
+			for _, line := range strings.Split(out, "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" || len(line) < 10 {
+					continue
+				}
+
+				// Mantra outputs JSON lines or plain text matches
+				var obj map[string]interface{}
+				if err := json.Unmarshal([]byte(line), &obj); err == nil {
+					match := ""
+					matchType := "API Key Leak"
+					if m, ok := obj["match"].(string); ok {
+						match = m
+					}
+					if t, ok := obj["type"].(string); ok {
+						matchType = t
+					}
+					if match == "" {
+						if u, ok := obj["url"].(string); ok {
+							match = u
+						}
+					}
+					if match == "" {
+						match = line
+					}
+
+					entropy := core.ShannonEntropy(match)
+					severity := "MEDIUM"
+					confidence := 60
+
+					if entropy > 4.0 {
+						severity = "HIGH"
+						confidence = 75
+					}
+					if confidence > 100 {
+						confidence = 100
+					}
+
+					localFindings = append(localFindings, core.Finding{
+						Tool:       "mantra",
+						Type:       matchType,
+						URL:        u,
+						File:       fp,
+						Match:      match,
+						Entropy:    fmt.Sprintf("%.2f", entropy),
+						Severity:   severity,
+						Confidence: confidence,
+					})
+				} else {
+					// Plain text output
+					entropy := core.ShannonEntropy(line)
+					severity := "LOW"
+					confidence := 45
+
+					if entropy > 4.0 {
+						severity = "MEDIUM"
+						confidence = 60
+					}
+
+					localFindings = append(localFindings, core.Finding{
+						Tool:       "mantra",
+						Type:       "API Key Leak",
+						URL:        u,
+						File:       fp,
+						Match:      line,
+						Entropy:    fmt.Sprintf("%.2f", entropy),
+						Severity:   severity,
+						Confidence: confidence,
+					})
+				}
+			}
+
+			if len(localFindings) > 0 {
+				mu.Lock()
+				findings = append(findings, localFindings...)
+				mu.Unlock()
+			}
+		}(urlStr, fpath)
+	}
+	wg.Wait()
+
+	os.WriteFile(filepath.Join(rawDir, "mantra_findings.json"), []byte(fmt.Sprintf("%d findings", len(findings))), 0644)
 	return findings
 }
