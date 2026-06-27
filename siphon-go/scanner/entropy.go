@@ -24,8 +24,7 @@ var hexLikeRe = regexp.MustCompile(`^[0-9a-fA-F]+$`)
 // uuidRe matches UUID patterns
 var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-// repetitiveRe checks if string is mostly repeated chars
-var repetitiveRe = regexp.MustCompile(`^(.)\1{10,}$|^(..)\2{5,}$|^(...)\3{4,}$`)
+// repetitive strings are now checked manually in the loop
 
 // semVerRe matches semantic version strings
 var semVerRe = regexp.MustCompile(`^\d+\.\d+\.\d+`)
@@ -90,8 +89,8 @@ func ScanEntropy(dlMap map[string]string) []core.Finding {
 					continue
 				}
 
-				// Skip repetitive patterns
-				if repetitiveRe.MatchString(value) {
+				// Skip repetitive patterns manually (Go regex doesn't support backreferences)
+				if isRepetitive(value) {
 					continue
 				}
 
@@ -222,5 +221,27 @@ func hasKnownSecretPrefix(s string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+// isRepetitive checks if a string consists mostly of a repeating pattern
+func isRepetitive(s string) bool {
+	if len(s) < 10 {
+		return false
+	}
+	
+	// Check single character repeat (e.g. "aaaaa...")
+	charCount := make(map[rune]int)
+	for _, c := range s {
+		charCount[c]++
+	}
+	
+	// If one character makes up more than 80% of the string
+	for _, count := range charCount {
+		if float64(count)/float64(len(s)) > 0.8 {
+			return true
+		}
+	}
+	
 	return false
 }
