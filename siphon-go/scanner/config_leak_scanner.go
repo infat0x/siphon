@@ -372,7 +372,7 @@ func scanEmbeddedConfig(content, urlStr, filePath string) []core.Finding {
 	}
 
 	// __NEXT_DATA__ / window.__CONFIG__ patterns
-	configVarRe := regexp.MustCompile(`(?i)(?:window\.__(?:CONFIG|INITIAL_STATE|APP_DATA|NEXT_DATA|NUXT__|PRELOADED_STATE)__|globalThis\.__CONFIG__|window\.config)\s*=\s*(\{[^;]{20,5000}\})`)
+	configVarRe := regexp.MustCompile(`(?i)(?:window\.__(?:CONFIG|INITIAL_STATE|APP_DATA|NEXT_DATA|NUXT__|PRELOADED_STATE)__|globalThis\.__CONFIG__|window\.config)\s*=\s*(\{[^;]{20,1000}\})`)
 	configMatches := configVarRe.FindAllStringSubmatchIndex(content, 10)
 
 	for _, m := range configMatches {
