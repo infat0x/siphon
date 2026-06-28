@@ -348,9 +348,21 @@ func main() {
 				}
 			}
 
+			// Deep parse the initial passive JS links to find chunks/dynamic imports
+			deepJs := collector.ExtractDeepJS(jsSet)
+			jsSet = append(jsSet, deepJs...)
+
+			// Small targeted brute force on live endpoints
 			bruteUrls := collector.BruteJSPaths(live, "")
 			jsSet = append(jsSet, bruteUrls...)
 		}
+
+		// Clean up formatting
+		jsSet = core.Dedup(jsSet)
+
+		// Discover live source maps
+		sourceMaps := collector.CheckSourceMaps(jsSet)
+		jsSet = append(jsSet, sourceMaps...)
 
 		jsAll = core.Dedup(jsSet)
 		jsCustom = downloader.FilterJS(jsAll)
