@@ -57,12 +57,12 @@ func CheckDependencies() {
 	fmt.Println()
 
 	if len(missing) == 0 {
-		core.PrintSuccess("Bütün tool-lar və AI hazırdır.")
-		fmt.Print("  Davam etmək istəyirsinizmi? [y/N]: ")
+		core.PrintSuccess("All required tools and AI are ready.")
+		fmt.Print("  Do you want to continue? [y/N]: ")
 	} else {
-		core.PrintWarning(fmt.Sprintf("Bu tool-lar yüklənməyib: %s", strings.Join(missing, ", ")))
-		core.PrintWarning("Zəhmət olmasa install_tools.sh faylını işlədin (və ya .env faylını yoxlayın).")
-		fmt.Print("  Yenə də davam etmək istəyirsinizmi? [y/N]: ")
+		core.PrintWarning(fmt.Sprintf("The following tools are missing: %s", strings.Join(missing, ", ")))
+		core.PrintWarning("Please run install_tools.sh (and/or check your .env file).")
+		fmt.Print("  Do you still want to continue? [y/N]: ")
 	}
 
 	reader := bufio.NewReader(os.Stdin)
@@ -70,11 +70,11 @@ func CheckDependencies() {
 	response = strings.TrimSpace(strings.ToLower(response))
 
 	if response != "y" && response != "yes" {
-		core.PrintError("Çıxılır...")
+		core.PrintError("Exiting...")
 		os.Exit(0)
 	}
 
-	core.PrintSuccess("Davam edilir...")
+	core.PrintSuccess("Continuing...")
 	core.PrintDivider()
 }
 
@@ -488,8 +488,8 @@ func main() {
 
 	// Interactive AI Prompt
 	fmt.Println()
-	core.PrintWarning("DİQQƏT: Reportu AI ilə analiz etdikdə tapılan gizli məlumatlar (secrets) AI serverlərinə göndəriləcək!")
-	fmt.Printf("  [?] Yenə də AI analizi etmək istəyirsinizmi? (y/N): ")
+	core.PrintWarning("WARNING: Analyzing the report with AI will send the found secrets to AI servers!")
+	fmt.Printf("  [?] Do you still want to analyze with AI? (y/N): ")
 	reader := bufio.NewReader(os.Stdin)
 	ans, _ := reader.ReadString('\n')
 	ans = strings.TrimSpace(strings.ToLower(ans))
