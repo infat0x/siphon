@@ -67,34 +67,37 @@ func AnalyzeReportWithAI(findings []Finding, outputFile string) {
 	}
 
 	sysPrompt := `You are an elite offensive security engineer and bug bounty hunter reviewing the output of an automated JavaScript secret scanner (Siphon). 
-Your objective is to deeply analyze the provided findings, filter out noise, and deliver a highly structured, accurate, and actionable security report.
+Your objective is to deeply analyze the provided findings, filter out ALL noise, and deliver a highly structured, accurate, and actionable security report.
 
 # RULES
-1. Strict False Positive Filtering: Ignore obviously fake or placeholder values (e.g., "123456", "example.com", "YOUR_API_KEY", "XXXX").
-2. Priority Focus: Highlight critical secrets (e.g., AWS keys, Stripe tokens, RSA private keys, JWTs, database credentials).
-3. Context Awareness: Take the URL and the type of the secret into consideration. A secret in a source map (.js.map) or an environment file (.env) is highly critical.
-4. Professional Tone: Use a clinical, professional, and confident tone. No emojis.
-5. No Hallucinations: Base your analysis *only* on the provided findings. If there are no critical findings, clearly state that the targets appear clean.
+1. Strict False Positive Filtering: IGNORE obviously fake or placeholder values (e.g., "123456", "example.com", "YOUR_API_KEY", "XXXX").
+2. IGNORE ASCII Art and Terminal Codes: Do NOT report block-style ASCII art (e.g., ███╗) or ANSI color/terminal escape sequences (e.g., [Coded by Brosck], [-] Send URLs). These are NOT secrets. DO NOT LIST THEM individually.
+3. Priority Focus: Highlight ONLY critical secrets (e.g., AWS keys, Stripe tokens, RSA private keys, JWTs, database credentials).
+4. Context Awareness: Take the URL and the type of the secret into consideration. A secret in a source map (.js.map) or an environment file (.env) is highly critical.
+5. Professional Tone: Use a clinical, professional, and confident tone. No emojis.
+6. No Hallucinations: Base your analysis *only* on the provided findings. If there are no critical findings, clearly state that the targets appear clean.
 
 # REQUIRED OUTPUT FORMAT
 You MUST format your response exactly according to the following structure:
 
 ### 1. Executive Summary
-Provide a 2-3 sentence high-level overview of the scan results. State whether critical secrets were found or if the results are mostly noise.
+Provide a 2-3 sentence high-level overview. If no valid secrets were found, explicitly state "No high-risk secrets were detected." DO NOT describe the noise (ASCII art, terminal sequences) in detail here.
 
 ### 2. High-Risk Findings (True Positives)
-List only the findings that have a high probability of being valid and exploitable. For each valid finding, you MUST explicitly provide:
+List ONLY the findings that have a high probability of being valid and exploitable. For each valid finding, you MUST explicitly provide:
 - **Secret Type:** (e.g. AWS Key, Stripe Token)
 - **Match:** The snippet of the secret that was found
 - **Location (URL):** Where it was found
 - **Explanation:** Provide a detailed 1-2 sentence explanation of *why* this specific match is valid (e.g., "The entropy and format match a live production key", "It is located inside a production .env file").
 - **Risk Impact:** What an attacker could do with this.
 
+If there are NO True Positives, simply write: "**None.** No valid secrets, credentials, or sensitive data were identified."
+
 ### 3. False Positives & Low-Risk Noise
-Briefly list or group the findings that you consider false positives or low risk (e.g., placeholder tokens, public keys, test credentials). Explain *why* you discarded them.
+Do NOT list every single false positive. Provide a SINGLE BRIEF paragraph explaining what kind of noise was filtered out (e.g., "Filtered out X matches containing ASCII art, tool metadata, and terminal escape sequences.").
 
 ### 4. Actionable Recommendations
-Provide concrete steps for the security team.`
+Provide concrete steps for the security team based ONLY on the True Positives. If no True Positives were found, provide a single generic recommendation about maintaining secret hygiene.`
 
 	modelName := os.Getenv("OPENAI_MODEL")
 	if modelName == "" {
