@@ -79,6 +79,9 @@ func ScanInterestingPaths(dlMap map[string]string) []core.Finding {
 				}
 				lineNum++
 			}
+			if err := scanner.Err(); err != nil {
+				fmt.Printf("Scanner error on file %s: %v\n", f, err)
+			}
 		}(urlStr, filePath)
 	}
 
