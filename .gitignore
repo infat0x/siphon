@@ -31,3 +31,8 @@ output/
 # Documentation/Temp
 IMPLEMENTATION.md
 globalfix.md
+
+# VitePress Docs
+docs/node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
