@@ -1,6 +1,5 @@
 import { defineConfig } from 'vitepress'
 
-// https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: "Siphon",
   description: "A hyper-concurrent, Go-based offensive security engine for large-scale JavaScript reconnaissance.",
@@ -13,7 +12,7 @@ export default defineConfig({
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Guide', link: '/guide/getting-started' },
-      { text: 'Architecture', link: '/architecture/pipeline' },
+      { text: 'Scenarios', link: '/scenarios/bug-bounty' },
       { text: 'Codebase Reference', link: '/reference/main' }
     ],
 
@@ -22,21 +21,62 @@ export default defineConfig({
         text: 'Introduction',
         items: [
           { text: 'Getting Started', link: '/guide/getting-started' },
+          { text: 'Installation', link: '/guide/installation' },
+          { text: 'Configuration', link: '/guide/configuration' },
+          { text: 'CLI Usage', link: '/guide/cli-usage' },
+          { text: 'AI Integration', link: '/guide/ai-integration' },
         ]
       },
       {
         text: 'Architecture & Engine',
         items: [
-          { text: 'Pipeline', link: '/architecture/pipeline' },
+          { text: 'Pipeline Overview', link: '/architecture/pipeline' },
+          { text: 'Concurrency Model', link: '/architecture/concurrency-model' },
+          { text: 'Secret Patterns', link: '/architecture/secret-patterns' },
+          { text: 'Data Flow', link: '/architecture/data-flow' },
+        ]
+      },
+      {
+        text: 'Use Cases & Scenarios',
+        items: [
+          { text: 'Bug Bounty Hunting', link: '/scenarios/bug-bounty' },
+          { text: 'Red Teaming', link: '/scenarios/red-teaming' },
+          { text: 'CI/CD Integration', link: '/scenarios/cicd-integration' },
+          { text: 'Custom Rules', link: '/scenarios/custom-rules' },
+        ]
+      },
+      {
+        text: 'Advanced Topics',
+        items: [
+          { text: 'Distributed Scanning', link: '/advanced/distributed-scanning' },
+          { text: 'Rate Limiting & Evasion', link: '/advanced/rate-limiting' },
+          { text: 'Fine Tuning the AI', link: '/advanced/fine-tuning' },
+        ]
+      },
+      {
+        text: 'API & Reports',
+        items: [
+          { text: 'JSON Report Schema', link: '/api/json-reports' },
+          { text: 'Stdout Parsing', link: '/api/stdout-parsing' },
+        ]
+      },
+      {
+        text: 'Maintenance & Support',
+        items: [
+          { text: 'Troubleshooting', link: '/guide/troubleshooting' },
+          { text: 'FAQ', link: '/guide/faq' },
+          { text: 'Best Practices', link: '/guide/best-practices' },
+          { text: 'Development Guide', link: '/contributing/development-guide' },
         ]
       },
       {
         text: 'Codebase Reference',
+        collapsed: true,
         items: [
           { text: 'Core System (main.go)', link: '/reference/main' },
           {
             text: 'Collector Module',
-            collapsed: false,
+            collapsed: true,
             items: [
               { text: 'Active Scraper', link: '/reference/collector/active' },
               { text: 'Brute Forcer', link: '/reference/collector/brute' },
