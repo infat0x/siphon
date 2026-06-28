@@ -41,33 +41,40 @@ func CheckDependencies() {
 		}
 	}
 
+	// Check AI
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		missing = append(missing, "AI (OPENAI_API_KEY)")
+		rows = append(rows, []string{"[-]", "AI (OPENAI_API_KEY)", "missing"})
+	} else {
+		rows = append(rows, []string{"[+]", "AI (OPENAI_API_KEY)", "ok"})
+	}
+
 	// Print the status table
 	fmt.Println()
 	for _, r := range rows {
-		fmt.Printf("  %s  %-20s %s\n", r[0], r[1], r[2])
+		fmt.Printf("  %s  %-25s %s\n", r[0], r[1], r[2])
 	}
 	fmt.Println()
 
 	if len(missing) == 0 {
-		core.PrintSuccess("All dependencies found")
-		core.PrintDivider()
-		return
+		core.PrintSuccess("Bütün tool-lar və AI hazırdır.")
+		fmt.Print("  Davam etmək istəyirsinizmi? [y/N]: ")
+	} else {
+		core.PrintWarning(fmt.Sprintf("Bu tool-lar yüklənməyib: %s", strings.Join(missing, ", ")))
+		core.PrintWarning("Zəhmət olmasa install_tools.sh faylını işlədin (və ya .env faylını yoxlayın).")
+		fmt.Print("  Yenə də davam etmək istəyirsinizmi? [y/N]: ")
 	}
-
-	// Some tools are missing — prompt user
-	core.PrintWarning(fmt.Sprintf("%d/%d tools missing: %s", len(missing), len(requiredTools), strings.Join(missing, ", ")))
-	fmt.Print("  continue anyway? [y/N]: ")
 
 	reader := bufio.NewReader(os.Stdin)
 	response, _ := reader.ReadString('\n')
 	response = strings.TrimSpace(strings.ToLower(response))
 
 	if response != "y" && response != "yes" {
-		core.PrintError("Exiting — please install missing tools first.")
+		core.PrintError("Çıxılır...")
 		os.Exit(0)
 	}
 
-	core.PrintSuccess("Continuing with missing tools...")
+	core.PrintSuccess("Davam edilir...")
 	core.PrintDivider()
 }
 
@@ -114,6 +121,9 @@ func main() {
 
 	core.PrintBanner()
 
+	// Load .env if it exists (before checks)
+	_ = godotenv.Load()
+
 	// Pre-flight: check all required tool dependencies
 	CheckDependencies()
 
@@ -122,9 +132,6 @@ func main() {
 	if *insecure {
 		core.PrintWarning("--insecure active — TLS certificate errors will be ignored")
 	}
-
-	// Load .env if it exists
-	_ = godotenv.Load()
 
 	core.GlobalConfig = core.Config{
 		Insecure: *insecure,
@@ -480,7 +487,9 @@ func main() {
 	core.PrintFinalStats(len(allFindings), critical, high, medium, time.Since(scanStart), reportPath)
 
 	// Interactive AI Prompt
-	fmt.Printf("\n  [?] Would you like an AI summary of this report? (y/N): ")
+	fmt.Println()
+	core.PrintWarning("DİQQƏT: Reportu AI ilə analiz etdikdə tapılan gizli məlumatlar (secrets) AI serverlərinə göndəriləcək!")
+	fmt.Printf("  [?] Yenə də AI analizi etmək istəyirsinizmi? (y/N): ")
 	reader := bufio.NewReader(os.Stdin)
 	ans, _ := reader.ReadString('\n')
 	ans = strings.TrimSpace(strings.ToLower(ans))
