@@ -11,7 +11,7 @@ export default defineConfig({
     
     nav: [
       { text: 'Home', link: '/' },
-      { text: 'Documentation', link: '/guide/getting-started' },
+      { text: 'Documentation', link: '/' },
       { text: 'API Reference', link: '/reference/main' }
     ],
 
@@ -24,7 +24,7 @@ export default defineConfig({
             text: 'Introduction',
             collapsed: true,
             items: [
-              { text: 'Getting Started', link: '/guide/getting-started' },
+              { text: 'Getting Started', link: '/' },
               { text: 'Installation', link: '/guide/installation' },
               { text: 'Configuration', link: '/guide/configuration' },
               { text: 'CLI Usage', link: '/guide/cli-usage' },
