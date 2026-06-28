@@ -6,6 +6,7 @@ export default defineConfig({
   description: "A hyper-concurrent, Go-based offensive security engine for large-scale JavaScript reconnaissance.",
   base: "/siphon/", // Required for GitHub Pages deployment
   cleanUrls: true,
+  appearance: 'force-dark',
   themeConfig: {
     logo: '/logo.png',
     
