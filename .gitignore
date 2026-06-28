@@ -1,6 +1,33 @@
-IMPLEMENTATION.md
+# OS & Editor
+.DS_Store
+.vscode/
+.idea/
+
+# Python (Legacy)
 __pycache__/
 *.pyc
 *.pyo
+
+# Go
+siphon
+siphon.exe
+*.exe
+go.work
+go.work.sum
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Siphon Outputs & Logs
 results/
+logs/
+output/
+*report*/
+*.log
+*.json
+
+# Documentation/Temp
+IMPLEMENTATION.md
 globalfix.md
