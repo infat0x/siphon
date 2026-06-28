@@ -22,7 +22,7 @@ const (
 	cAmber = "\033[38;5;214m" // amber — warnings
 )
 
-var Multi *pterm.MultiPrinter
+// MultiPrinter removed
 
 // ClearScreen clears the terminal for a clean start.
 func ClearScreen() {
@@ -50,6 +50,7 @@ func PrintBanner() {
 
 // PrintSection prints a step header: [1/5] title
 func PrintSection(step int, total int, title string) {
+	fmt.Println()
 	fmt.Println()
 	fmt.Printf("  %s[%d/%d]%s %s%s%s\n",
 		cGray, step, total, RESET,
@@ -97,7 +98,7 @@ func PrintScanEngineStart(engineCount int) {
 }
 
 // PrintFinalStats prints the final statistics block.
-func PrintFinalStats(findings int, critical int, high int, medium int, elapsed time.Duration) {
+func PrintFinalStats(findings int, critical int, high int, medium int, elapsed time.Duration, reportPath string) {
 	fmt.Println()
 	PrintDivider()
 	fmt.Printf("  %s%sscan complete%s\n", cWhite, BOLD, RESET)
@@ -114,6 +115,7 @@ func PrintFinalStats(findings int, critical int, high int, medium int, elapsed t
 		fmt.Printf("  %smedium%s      %s%s%d%s\n", cGray, RESET, cWhite, BOLD, medium, RESET)
 	}
 	fmt.Printf("  %sduration%s    %s%s\n", cGray, RESET, elapsed.Round(time.Second).String(), RESET)
+	fmt.Printf("  %sreport%s      %s%s\n", cGray, RESET, reportPath, RESET)
 
 	PrintDivider()
 	fmt.Println()
@@ -152,12 +154,10 @@ func InitUI() {
 	pterm.DefaultProgressbar.ShowElapsedTime = true
 	pterm.DefaultProgressbar.BarStyle = pterm.NewStyle(pterm.FgWhite)
 	pterm.DefaultProgressbar.TitleStyle = pterm.NewStyle(pterm.FgWhite, pterm.Bold)
-
-	Multi, _ = pterm.DefaultMultiPrinter.Start()
 }
 
 func StopUI() {
-	Multi.Stop()
+	// No longer needed
 }
 
 func Logf(format string, a ...interface{}) {
@@ -172,12 +172,18 @@ func Logln(a ...interface{}) {
 	Info(msg)
 }
 
-func StartSpinner(text string) *pterm.SpinnerPrinter {
-	s, _ := pterm.DefaultSpinner.WithWriter(Multi.NewWriter()).WithText(text).Start()
-	return s
+type DummySpinner struct{}
+
+func (d *DummySpinner) Success(msg string) {
+	PrintSuccess(msg)
+}
+
+func StartSpinner(text string) *DummySpinner {
+	fmt.Printf("  %s>%s %s\n", cDim, RESET, text)
+	return &DummySpinner{}
 }
 
 func StartProgressBar(total int, text string) *pterm.ProgressbarPrinter {
-	p, _ := pterm.DefaultProgressbar.WithTotal(total).WithTitle(text).WithWriter(Multi.NewWriter()).Start()
+	p, _ := pterm.DefaultProgressbar.WithTotal(total).WithTitle("  " + text).Start()
 	return p
 }

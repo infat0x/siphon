@@ -15,8 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/pterm/pterm"
 )
 
 // requiredTools lists all external CLI tools that siphon-go depends on.
@@ -224,11 +222,8 @@ func main() {
 
 		// 1. Live Hosts
 		core.PrintSection(1, 5, "Live Host Detection")
-		var pbHost *pterm.ProgressbarPrinter
 		liveFile := filepath.Join(dirs["live"], "live.txt")
-
 		if *skipLiveCheck {
-			pbHost = core.StartProgressBar(1, "1. Live Host Detection")
 			if data, err := os.ReadFile(liveFile); err == nil {
 				for _, l := range strings.Split(string(data), "\n") {
 					l = strings.TrimSpace(l)
@@ -237,24 +232,17 @@ func main() {
 					}
 				}
 			}
-			core.Logf("\n[1/5] Skipped httpx — %d hosts from live.txt\n", len(live))
-			pbHost.Add(1)
+			core.Logf("  %s>%s skipped httpx — %d hosts loaded\n", core.DIM, core.RESET, len(live))
 		} else if singleDomain {
-			pbHost = core.StartProgressBar(1, "1. Live Host Detection")
 			live = subsList
 			os.WriteFile(liveFile, []byte(strings.Join(live, "\n")+"\n"), 0644)
-			core.Logf("\n[1/5] Single-domain mode — skipping httpx probe\n")
-			pbHost.Add(1)
+			core.Logf("  %s>%s single-domain mode — skipping httpx probe\n", core.DIM, core.RESET)
 		} else {
-			pbHost = core.StartProgressBar(1, "Live Host Detection (Running httpx)")
+			core.Logf("  %s>%s running httpx...\n", core.DIM, core.RESET)
 			live = scanner.RunHttpx(*subs, liveFile)
-			pbHost.Add(1)
 		}
 
 		stats.SetLive(len(live))
-		if pbHost != nil {
-			pbHost.Stop()
-		}
 
 		if len(live) == 0 {
 			core.PrintError("No live hosts found")
@@ -265,7 +253,6 @@ func main() {
 
 		// 2. URL Collection
 		core.PrintSection(2, 5, "URL Collection (Passive+Active)")
-		pbUrl, _ := pterm.DefaultProgressbar.WithTotal(5).WithTitle("Collection").WithWriter(core.Multi.NewWriter()).Start()
 		urlsFile := filepath.Join(dirs["urls"], "all_urls.txt")
 		var allUrls []string
 
@@ -278,11 +265,7 @@ func main() {
 					}
 				}
 			}
-			if pbUrl != nil {
-				pbUrl.Add(5)
-				pbUrl.Stop()
-			}
-			core.Logf("\n[2/5] Skipped collection — %d URLs loaded\n", len(allUrls))
+			core.Logf("  %s>%s skipped collection — %d URLs loaded\n", core.DIM, core.RESET, len(allUrls))
 		} else {
 			var mu sync.Mutex
 			var wg sync.WaitGroup
@@ -308,9 +291,6 @@ func main() {
 					mu.Lock()
 					allUrls = append(allUrls, res...)
 					mu.Unlock()
-					if pbUrl != nil {
-						pbUrl.Add(1)
-					}
 				}(t.name, t.fn)
 			}
 
@@ -324,15 +304,9 @@ func main() {
 				mu.Lock()
 				allUrls = append(allUrls, res...)
 				mu.Unlock()
-				if pbUrl != nil {
-					pbUrl.Add(1)
-				}
 			}()
 
 			wg.Wait()
-			if pbUrl != nil {
-				pbUrl.Stop()
-			}
 
 			allUrls = core.Dedup(allUrls)
 			os.WriteFile(urlsFile, []byte(strings.Join(allUrls, "\n")+"\n"), 0644)
@@ -343,7 +317,6 @@ func main() {
 
 		// 3. JS Extraction & Filter
 		core.PrintSection(3, 5, "JavaScript Extraction")
-		pbExtract, _ := pterm.DefaultProgressbar.WithTotal(2).WithTitle("Extraction").WithWriter(core.Multi.NewWriter()).Start()
 		
 		var jsSet []string
 
@@ -364,11 +337,9 @@ func main() {
 			}
 			
 			jsSet = append(jsSet, collector.ActiveHTMLScrape(targetPaths)...)
-			pbExtract.Add(1)
 
 			bruteUrls := collector.BruteJSPaths(live, *pathFilter)
 			jsSet = append(jsSet, bruteUrls...)
-			pbExtract.Add(1)
 		} else {
 			for _, u := range allUrls {
 				lu := strings.ToLower(u)
@@ -376,11 +347,9 @@ func main() {
 					jsSet = append(jsSet, u)
 				}
 			}
-			pbExtract.Add(1)
 
 			bruteUrls := collector.BruteJSPaths(live, "")
 			jsSet = append(jsSet, bruteUrls...)
-			pbExtract.Add(1)
 		}
 
 		jsAll = core.Dedup(jsSet)
@@ -391,9 +360,6 @@ func main() {
 
 		stats.SetJsAll(len(jsAll))
 		stats.SetJsCustom(len(jsCustom))
-		if pbExtract != nil {
-			pbExtract.Stop()
-		}
 	} // end else mode
 
 	if *skipDownload {
@@ -425,8 +391,6 @@ func main() {
 
 	core.PrintScanEngineStart(14)
 	core.PrintSection(5, 5, "Secret Scanning")
-	
-	pbScan, _ := pterm.DefaultProgressbar.WithTotal(14).WithTitle("Scanning").WithWriter(core.Multi.NewWriter()).Start()
 
 	var allFindings []core.Finding
 	var mu sync.Mutex
@@ -442,10 +406,7 @@ func main() {
 			mu.Lock()
 			allFindings = append(allFindings, res...)
 			mu.Unlock()
-			if pbScan != nil {
-				pbScan.Add(1)
-			}
-			sp.Success(fmt.Sprintf("%s finished (%d findings)", name, len(res)))
+			sp.Success(fmt.Sprintf("%-16s finished (%d findings)", name, len(res)))
 		}()
 	}
 
@@ -469,9 +430,6 @@ func main() {
 	runScanner("Mantra", func() []core.Finding { return scanner.ScanMantra(dlMap, dirs["raw"], logDir) })
 
 	wg.Wait()
-	if pbScan != nil {
-		pbScan.Stop()
-	}
 	reverseMap := make(map[string]string)
 	for u, p := range dlMap {
 		if p != "/dev/null" {
@@ -502,5 +460,5 @@ func main() {
 			medium++
 		}
 	}
-	core.PrintFinalStats(len(allFindings), critical, high, medium, time.Since(scanStart))
+	core.PrintFinalStats(len(allFindings), critical, high, medium, time.Since(scanStart), reportPath)
 }
