@@ -39,7 +39,7 @@ func ClearScreen() {
 func PrintBanner() {
 	ClearScreen()
 	fmt.Println()
-	fmt.Printf("  %s%ssiphon%s %sv7%s %s|%s js secret scanner %s|%s 14 engines%s\n",
+	fmt.Printf("  %s%ssiphon%s %sv7%s %s|%s js secret scanner %s|%s 15 engines%s\n",
 		cWhite, BOLD, RESET,
 		cGray, RESET,
 		cDim, RESET,

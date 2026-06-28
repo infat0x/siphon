@@ -405,7 +405,7 @@ func main() {
 
 	scanner.CheckGitExposure(live, dirs["git"], *threads)
 
-	core.PrintScanEngineStart(14)
+	core.PrintScanEngineStart(15)
 	core.PrintSection(5, 5, "Secret Scanning")
 
 	var allFindings []core.Finding
@@ -444,6 +444,7 @@ func main() {
 	runScanner("SourceMaps", func() []core.Finding { return scanner.ScanSourceMaps(dlMap, dirs["raw"]) })
 	runScanner("ConfigLeaks", func() []core.Finding { return scanner.ScanConfigLeaks(live, dlMap, dirs["raw"]) })
 	runScanner("Mantra", func() []core.Finding { return scanner.ScanMantra(dlMap, dirs["raw"], logDir) })
+	runScanner("InterestingPaths", func() []core.Finding { return scanner.ScanInterestingPaths(dlMap) })
 
 	wg.Wait()
 	reverseMap := make(map[string]string)
