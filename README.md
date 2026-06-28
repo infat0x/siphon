@@ -13,7 +13,7 @@
   <b>Multi-stage JavaScript reconnaissance and secret scanning tool, rewritten in Go for maximum performance.</b>
 </p>
 
-> [!NOTE]
+> [!TIP]
 > For complete instructions, architecture details, and advanced usage scenarios, please read the **[Official Documentation](https://infat0x.github.io/siphon/)**.
 
 ## Pipeline
