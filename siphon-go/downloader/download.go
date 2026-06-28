@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"siphon-go/core"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,12 +32,21 @@ var copyBufPool = sync.Pool{
 }
 
 func attemptDownload(client *http.Client, urlStr, dlDir string, seenHashes *sync.Map) (string, error) {
-	req, err := http.NewRequest("GET", urlStr, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("User-Agent", userAgents[time.Now().UnixNano()%int64(len(userAgents))])
 	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Accept-Encoding", "identity")
+	req.Header.Set("Sec-Fetch-Dest", "script")
+	req.Header.Set("Sec-Fetch-Mode", "no-cors")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("Referer", urlStr)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -135,7 +146,27 @@ func DownloadJS(urls []string, dlDir string, threads int, pb *pterm.ProgressbarP
 		go func() {
 			defer wg.Done()
 			for urlStr := range urlChan {
-				finalPath, _ := attemptDownload(client, urlStr, dlDir, &seenHashes)
+				finalPath, err := attemptDownload(client, urlStr, dlDir, &seenHashes)
+
+				// Protocol Fallback: if primary attempt failed, try alternate protocol
+				if err != nil || finalPath == "" {
+					fallbackURL := ""
+					if strings.HasPrefix(urlStr, "https://") {
+						fallbackURL = "http://" + strings.TrimPrefix(urlStr, "https://")
+					} else if strings.HasPrefix(urlStr, "http://") {
+						fallbackURL = "https://" + strings.TrimPrefix(urlStr, "http://")
+					}
+					if fallbackURL != "" {
+						core.Debug("Fallback attempt: %s -> %s", urlStr, fallbackURL)
+						fallbackPath, fallbackErr := attemptDownload(client, fallbackURL, dlDir, &seenHashes)
+						if fallbackErr == nil && fallbackPath != "" {
+							finalPath = fallbackPath
+							// Store with original URL as key
+						} else {
+							core.Debug("Both protocols failed for %s", urlStr)
+						}
+					}
+				}
 
 				if finalPath != "" {
 					downloaded.Store(urlStr, finalPath)

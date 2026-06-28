@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"siphon-go/collector"
 	"siphon-go/core"
@@ -16,6 +18,58 @@ import (
 
 	"github.com/pterm/pterm"
 )
+
+// requiredTools lists all external CLI tools that siphon-go depends on.
+var requiredTools = []string{
+	"katana", "gau", "hakrawler", "waybackurls", "subjs",
+	"nuclei", "trufflehog", "gitleaks", "jsluice", "cariddi",
+}
+
+// CheckDependencies verifies all required tools are in $PATH.
+// Prints status for each tool and prompts the user if any are missing.
+func CheckDependencies() {
+	var missing []string
+	var rows [][]string
+
+	for _, tool := range requiredTools {
+		_, err := exec.LookPath(tool)
+		if err != nil {
+			missing = append(missing, tool)
+			rows = append(rows, []string{"❌", tool, "Missing"})
+		} else {
+			rows = append(rows, []string{"✅", tool, "OK"})
+		}
+	}
+
+	// Print the status table
+	fmt.Println()
+	for _, r := range rows {
+		fmt.Printf("  %s  %-20s %s\n", r[0], r[1], r[2])
+	}
+	fmt.Println()
+
+	if len(missing) == 0 {
+		core.PrintSuccess("All dependencies found")
+		core.PrintDivider()
+		return
+	}
+
+	// Some tools are missing — prompt user
+	core.PrintWarning(fmt.Sprintf("%d/%d tools missing: %s", len(missing), len(requiredTools), strings.Join(missing, ", ")))
+	fmt.Print("  ⚠️  Some required tools are missing. Do you want to continue anyway? [y/N]: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	response, _ := reader.ReadString('\n')
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	if response != "y" && response != "yes" {
+		core.PrintError("Exiting — please install missing tools first.")
+		os.Exit(0)
+	}
+
+	core.PrintSuccess("Continuing with missing tools...")
+	core.PrintDivider()
+}
 
 // banner is now handled by core.PrintBanner()
 
@@ -59,6 +113,10 @@ func main() {
 	defer core.StopUI()
 
 	core.PrintBanner()
+
+	// Pre-flight: check all required tool dependencies
+	CheckDependencies()
+
 	scanStart := time.Now()
 
 	if *insecure {
@@ -374,15 +432,16 @@ func main() {
 		}()
 	}
 
-	// ── Original Scanners (improved) ──────────────────────────────────────
+	logDir = dirs["logs"]
+
 	runScanner("Regex", func() []core.Finding { return scanner.ScanRegex(dlMap) })
-	runScanner("Trufflehog", func() []core.Finding { return scanner.ScanTrufflehog(dirs["dl"], dirs["raw"]) })
-	runScanner("Gitleaks", func() []core.Finding { return scanner.ScanGitleaks(dirs["dl"], dirs["raw"]) })
-	runScanner("Jsleak", func() []core.Finding { return scanner.ScanJsleak(dlMap, dirs["raw"]) })
-	runScanner("Jsluice", func() []core.Finding { return scanner.ScanJsluice(dlMap, dirs["raw"]) })
-	runScanner("Cariddi", func() []core.Finding { return scanner.ScanCariddi(dlMap, dirs["raw"]) })
-	runScanner("Subjs", func() []core.Finding { return scanner.ScanSubjs(dlMap, dirs["raw"]) })
-	runScanner("Nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"]) })
+	runScanner("Trufflehog", func() []core.Finding { return scanner.ScanTrufflehog(dirs["dl"], dirs["raw"], logDir) })
+	runScanner("Gitleaks", func() []core.Finding { return scanner.ScanGitleaks(dirs["dl"], dirs["raw"], logDir) })
+	runScanner("Jsleak", func() []core.Finding { return scanner.ScanJsleak(dlMap, dirs["raw"], logDir) })
+	runScanner("Jsluice", func() []core.Finding { return scanner.ScanJsluice(dlMap, dirs["raw"], logDir) })
+	runScanner("Cariddi", func() []core.Finding { return scanner.ScanCariddi(dlMap, dirs["raw"], logDir) })
+	runScanner("Subjs", func() []core.Finding { return scanner.ScanSubjs(dlMap, dirs["raw"], logDir) })
+	runScanner("Nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"], logDir) })
 
 	// ── New Native Engines ────────────────────────────────────────────────
 	runScanner("Entropy", func() []core.Finding { return scanner.ScanEntropy(dlMap) })
@@ -390,7 +449,7 @@ func main() {
 	runScanner("InlineAssign", func() []core.Finding { return scanner.ScanInlineAssign(dlMap) })
 	runScanner("SourceMaps", func() []core.Finding { return scanner.ScanSourceMaps(dlMap, dirs["raw"]) })
 	runScanner("ConfigLeaks", func() []core.Finding { return scanner.ScanConfigLeaks(live, dlMap, dirs["raw"]) })
-	runScanner("Mantra", func() []core.Finding { return scanner.ScanMantra(dlMap, dirs["raw"]) })
+	runScanner("Mantra", func() []core.Finding { return scanner.ScanMantra(dlMap, dirs["raw"], logDir) })
 
 	wg.Wait()
 	reverseMap := make(map[string]string)

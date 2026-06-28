@@ -74,3 +74,34 @@ func Error(format string, v ...interface{}) {
 		logger.Output(2, fmt.Sprintf("[ERROR] "+format, v...))
 	}
 }
+
+// WriteToolLog writes the complete output of an external tool to a dedicated .out file
+// in the specified log directory. Creates the file if it doesn't exist, appends if it does.
+// Example: WriteToolLog("/path/to/logs", "jsluice", "stdout content", "stderr content")
+// produces /path/to/logs/jsluice.out with both stdout and stderr.
+func WriteToolLog(logDir, toolName, stdout, stderr string) error {
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return err
+	}
+
+	path := filepath.Join(logDir, toolName+".out")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	ts := time.Now().Format(time.RFC3339)
+	fmt.Fprintf(f, "=== %s output at %s ===\n", toolName, ts)
+
+	if stdout != "" {
+		fmt.Fprintf(f, "--- STDOUT ---\n%s\n", stdout)
+	}
+	if stderr != "" {
+		fmt.Fprintf(f, "--- STDERR ---\n%s\n", stderr)
+	}
+
+	fmt.Fprintln(f, "=== END ===")
+	fmt.Fprintln(f)
+	return nil
+}

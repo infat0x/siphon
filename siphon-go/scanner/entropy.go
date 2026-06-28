@@ -104,6 +104,21 @@ func ScanEntropy(dlMap map[string]string) []core.Finding {
 					continue
 				}
 
+				// Skip alphabet/charset strings (Base64 table, hex table, etc.)
+				if isAlphabetString(value) {
+					continue
+				}
+
+				// Skip minified JavaScript code snippets
+				if isMinifiedCode(value) {
+					continue
+				}
+
+				// Skip base64-encoded binary data (PNG, PDF, JPEG, GIF)
+				if IsMagicByteEncoded(value) {
+					continue
+				}
+
 				entropy := core.ShannonEntropy(value)
 				if entropy < 4.0 {
 					continue
@@ -222,6 +237,64 @@ func hasKnownSecretPrefix(s string) bool {
 		}
 	}
 	return false
+}
+
+// standardAlphabets contains known character set strings that should not be flagged as secrets.
+var standardAlphabets = []string{
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",  // Base64
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",   // Base64 (no padding)
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",   // Base64URL
+	"0123456789abcdefABCDEF",                                              // Hex
+	"0123456789abcdef",                                                     // Hex lowercase
+	"0123456789ABCDEF",                                                     // Hex uppercase
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",      // Alphanumeric
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",                // Alpha only
+	"0123456789",                                                           // Numeric only
+}
+
+// isAlphabetString returns true if the string is ≥90% a substring of a standard
+// character set alphabet (Base64, Hex, etc). These are lookup tables, not secrets.
+func isAlphabetString(s string) bool {
+	for _, alphabet := range standardAlphabets {
+		// Check if s is a direct substring of the alphabet
+		if strings.Contains(alphabet, s) {
+			return true
+		}
+		// Check if ≥90% of s's characters appear sequentially in the alphabet
+		if len(s) > 10 && float64(countSubstringOverlap(s, alphabet))/float64(len(s)) > 0.90 {
+			return true
+		}
+	}
+	return false
+}
+
+// countSubstringOverlap counts how many characters in s are also in alphabet.
+func countSubstringOverlap(s, alphabet string) int {
+	count := 0
+	for _, c := range s {
+		if strings.ContainsRune(alphabet, c) {
+			count++
+		}
+	}
+	return count
+}
+
+// structuralChars are characters typical in minified JavaScript code, not in secrets.
+const structuralChars = "{}()<>=+-;,"
+
+// isMinifiedCode returns true if structural JavaScript characters make up >15%
+// of the string's length. This catches minified code snippets flagged as secrets.
+func isMinifiedCode(s string) bool {
+	if len(s) < 16 {
+		return false
+	}
+	count := 0
+	for _, c := range s {
+		if strings.ContainsRune(structuralChars, c) {
+			count++
+		}
+	}
+	return float64(count)/float64(len(s)) > 0.15
 }
 
 // isRepetitive checks if a string consists mostly of a repeating pattern

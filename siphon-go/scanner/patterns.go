@@ -1712,3 +1712,89 @@ var BankingKeywordList = []string{
 func GetBankingKeywordRegex() string {
 	return `(?i)\b(` + strings.Join(BankingKeywordList, "|") + `)\b\s*[:=]\s*['"]([^'"]{4,80})['"]`
 }
+
+// ── False Positive Filters ──────────────────────────────────────────────────
+
+// magicBytePrefixes are base64-encoded headers of common binary file formats.
+// Matches flagged with these prefixes are embedded images/PDFs, not secrets.
+var magicBytePrefixes = []string{
+	"AAAANSUhE", // PNG (base64 of \x89PNG\r\n\x1a\n)
+	"JVBERi0",   // PDF (%PDF-)
+	"/9j/4",     // JPEG (0xFF 0xD8 0xFF)
+	"R0lGOD",    // GIF (GIF87a / GIF89a)
+	"UEsDB",     // ZIP / DOCX / XLSX
+	"AAAB",      // Various binary blobs
+}
+
+// IsMagicByteEncoded returns true if the string starts with a known base64-encoded
+// binary file header. These are NOT secrets — they are embedded image/PDF data.
+func IsMagicByteEncoded(s string) bool {
+	for _, prefix := range magicBytePrefixes {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// LuhnCheck validates a numeric string using the Luhn algorithm.
+// Returns true only if the string is a valid credit card number.
+func LuhnCheck(s string) bool {
+	// Strip spaces and dashes
+	cleaned := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, s)
+
+	n := len(cleaned)
+	if n < 13 || n > 19 {
+		return false
+	}
+
+	sum := 0
+	alt := false
+	for i := n - 1; i >= 0; i-- {
+		d := int(cleaned[i] - '0')
+		if alt {
+			d *= 2
+			if d > 9 {
+				d -= 9
+			}
+		}
+		sum += d
+		alt = !alt
+	}
+	return sum%10 == 0
+}
+
+// base58Chars is the Bitcoin Base58 character set (no 0, O, I, l).
+const base58Chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+// IsValidBitcoinWIF validates that a string looks like a real Bitcoin WIF private key.
+// WIF keys are 51 chars (uncompressed, start with '5') or 52 chars (compressed, start with 'K' or 'L'),
+// and consist entirely of Base58 characters.
+func IsValidBitcoinWIF(s string) bool {
+	s = strings.TrimSpace(s)
+	n := len(s)
+
+	// Must be 51 (uncompressed) or 52 (compressed) characters
+	if n != 51 && n != 52 {
+		return false
+	}
+
+	// Must start with '5' (uncompressed) or 'K'/'L' (compressed)
+	first := s[0]
+	if first != '5' && first != 'K' && first != 'L' {
+		return false
+	}
+
+	// All characters must be in Base58 charset
+	for _, c := range s {
+		if !strings.ContainsRune(base58Chars, c) {
+			return false
+		}
+	}
+	return true
+}

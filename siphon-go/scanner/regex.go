@@ -128,6 +128,21 @@ func ScanRegex(dlMap map[string]string) []core.Finding {
 						continue
 					}
 
+					// Skip base64-encoded binary data (PNG, PDF, JPEG, GIF)
+					if IsMagicByteEncoded(snippet) {
+						continue
+					}
+
+					// Validate Credit Card matches with Luhn algorithm
+					if name == "Credit Card (PAN)" && !LuhnCheck(snippet) {
+						continue
+					}
+
+					// Validate Bitcoin WIF matches with Base58 charset & length check
+					if name == "Bitcoin WIF Private Key" && !IsValidBitcoinWIF(snippet) {
+						continue
+					}
+
 					entropy := core.ShannonEntropy(snippet)
 					if entropy < minEntropy {
 						continue

@@ -18,7 +18,19 @@ import (
 	"time"
 )
 
-func runCmd(ctx context.Context, name string, args ...string) (string, error) {
+// ToolResult captures the full output and status of an external tool execution.
+type ToolResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+	Failed   bool   // true if tool exited non-zero or stderr contains fatal errors
+	FailMsg  string // human-readable failure reason
+}
+
+// fatalErrorPatterns are stderr substrings that indicate a tool has failed fatally.
+var fatalErrorPatterns = []string{"panic", "fatal", "FATAL", "PANIC"}
+
+func runCmd(ctx context.Context, name string, args ...string) ToolResult {
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmdArgs := append([]string{"/c", name}, args...)
@@ -26,21 +38,94 @@ func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 	} else {
 		cmd = exec.CommandContext(ctx, name, args...)
 	}
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
 	err := cmd.Run()
-	return stdout.String(), err
+
+	result := ToolResult{
+		Stdout: stdout.String(),
+		Stderr: stderr.String(),
+	}
+
+	// Determine exit code
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			result.ExitCode = exitErr.ExitCode()
+		} else {
+			result.ExitCode = -1
+		}
+	}
+
+	// Check for fatal errors in stderr
+	stderrLower := strings.ToLower(result.Stderr)
+	for _, pattern := range fatalErrorPatterns {
+		if strings.Contains(stderrLower, strings.ToLower(pattern)) {
+			result.Failed = true
+			result.FailMsg = fmt.Sprintf("stderr contains '%s'", pattern)
+			break
+		}
+	}
+
+	// Non-zero exit also means failure (unless already marked)
+	if result.ExitCode != 0 && !result.Failed {
+		result.Failed = true
+		result.FailMsg = fmt.Sprintf("exit code %d", result.ExitCode)
+	}
+
+	return result
 }
 
-func ScanTrufflehog(dlDir string, rawDir string) []core.Finding {
+// isDirEmpty checks if a directory exists and contains at least one file.
+func isDirEmpty(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return true
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			return false
+		}
+	}
+	return true
+}
+
+// isDlMapEmpty returns true if dlMap has no real downloaded files.
+func isDlMapEmpty(dlMap map[string]string) bool {
+	for _, p := range dlMap {
+		if p != "" && p != "/dev/null" {
+			return false
+		}
+	}
+	return true
+}
+
+func ScanTrufflehog(dlDir string, rawDir string, logDir string) []core.Finding {
 	var findings []core.Finding
+
+	// Empty input check: skip if no downloaded files exist
+	if isDirEmpty(dlDir) {
+		core.Info("Trufflehog skipped — no files in %s", dlDir)
+		return findings
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	out, _ := runCmd(ctx, "trufflehog", "filesystem", dlDir, "--json", "--no-verification", "--no-update")
-	os.WriteFile(filepath.Join(rawDir, "trufflehog.json"), []byte(out), 0644)
+	result := runCmd(ctx, "trufflehog", "filesystem", dlDir, "--json", "--no-verification", "--no-update")
+	os.WriteFile(filepath.Join(rawDir, "trufflehog.json"), []byte(result.Stdout), 0644)
 
-	for _, line := range strings.Split(out, "\n") {
+	// Write segregated tool log
+	core.WriteToolLog(logDir, "trufflehog", result.Stdout, result.Stderr)
+
+	// If tool failed fatally, don't report 0 findings — report failure
+	if result.Failed {
+		core.Error("Trufflehog failed: %s", result.FailMsg)
+		return findings
+	}
+
+	for _, line := range strings.Split(result.Stdout, "\n") {
 		if line == "" {
 			continue
 		}
@@ -106,13 +191,23 @@ func ScanTrufflehog(dlDir string, rawDir string) []core.Finding {
 	return findings
 }
 
-func ScanGitleaks(dlDir string, rawDir string) []core.Finding {
+func ScanGitleaks(dlDir string, rawDir string, logDir string) []core.Finding {
 	var findings []core.Finding
+
+	// Empty input check: skip if no downloaded files exist
+	if isDirEmpty(dlDir) {
+		core.Info("Gitleaks skipped — no files in %s", dlDir)
+		return findings
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	reportPath := filepath.Join(rawDir, "gitleaks.json")
-	_, _ = runCmd(ctx, "gitleaks", "detect", "--source", dlDir, "--no-git", "--report-format", "json", "--report-path", reportPath, "--exit-code", "0", "--log-level", "warn", "--redact=false")
+	result := runCmd(ctx, "gitleaks", "detect", "--source", dlDir, "--no-git", "--report-format", "json", "--report-path", reportPath, "--exit-code", "0", "--log-level", "warn", "--redact=false")
+
+	// Write segregated tool log
+	core.WriteToolLog(logDir, "gitleaks", result.Stdout, result.Stderr)
 
 	data, err := os.ReadFile(reportPath)
 	if err != nil {
@@ -162,7 +257,7 @@ func ScanGitleaks(dlDir string, rawDir string) []core.Finding {
 	return findings
 }
 
-func ScanJsluice(dlMap map[string]string, rawDir string) []core.Finding {
+func ScanJsluice(dlMap map[string]string, rawDir string, logDir string) []core.Finding {
 	var findings []core.Finding
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -180,9 +275,15 @@ func ScanJsluice(dlMap map[string]string, rawDir string) []core.Finding {
 			defer func() { <-sem }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			outSec, _ := runCmd(ctx, "jsluice", "secrets", fpath)
-			outUrl, _ := runCmd(ctx, "jsluice", "urls", fpath)
+			resSec := runCmd(ctx, "jsluice", "secrets", fpath)
+			resUrl := runCmd(ctx, "jsluice", "urls", fpath)
 			cancel()
+
+			// Write segregated tool log (append per-file results)
+			core.WriteToolLog(logDir, "jsluice", resSec.Stdout+resUrl.Stdout, resSec.Stderr+resUrl.Stderr)
+
+			outSec := resSec.Stdout
+			outUrl := resUrl.Stdout
 
 			var localFindings []core.Finding
 			
@@ -258,7 +359,7 @@ func ScanJsluice(dlMap map[string]string, rawDir string) []core.Finding {
 	return findings
 }
 
-func ScanNuclei(jsUrls []string, rawDir string) []core.Finding {
+func ScanNuclei(jsUrls []string, rawDir string, logDir string) []core.Finding {
 	var findings []core.Finding
 	if len(jsUrls) == 0 {
 		return findings
@@ -272,11 +373,14 @@ func ScanNuclei(jsUrls []string, rawDir string) []core.Finding {
 	defer cancel()
 
 	// Extended tags for better coverage
-	_, _ = runCmd(ctx, "nuclei", "-l", urlListPath,
+	result := runCmd(ctx, "nuclei", "-l", urlListPath,
 		"-tags", "exposure,token,javascript,config,secret,apikey,credential,leak,misconfiguration",
 		"-silent", "-no-color", "-json", "-o", reportPath,
 		"-rate-limit", "50", "-concurrency", "20", "-timeout", "10",
 		"-no-update-templates")
+
+	// Write segregated tool log
+	core.WriteToolLog(logDir, "nuclei", result.Stdout, result.Stderr)
 
 	data, err := os.ReadFile(reportPath)
 	if err != nil {
@@ -327,7 +431,7 @@ func ScanNuclei(jsUrls []string, rawDir string) []core.Finding {
 	return findings
 }
 
-func ScanJsleak(dlMap map[string]string, rawDir string) []core.Finding {
+func ScanJsleak(dlMap map[string]string, rawDir string, logDir string) []core.Finding {
 	var findings []core.Finding
 	var rawLines []string
 	var mu sync.Mutex
@@ -346,8 +450,13 @@ func ScanJsleak(dlMap map[string]string, rawDir string) []core.Finding {
 			defer func() { <-sem }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			out, _ := runCmd(ctx, "jsleak", "-f", fpath, "-s")
+			result := runCmd(ctx, "jsleak", "-f", fpath, "-s")
 			cancel()
+
+			// Write segregated tool log
+			core.WriteToolLog(logDir, "jsleak", result.Stdout, result.Stderr)
+
+			out := result.Stdout
 
 			var localFindings []core.Finding
 			var localRaw []string
@@ -425,7 +534,7 @@ func CheckGitExposure(liveHosts []string, gitDir string, threads int) []string {
 	return dumpPaths
 }
 
-func ScanCariddi(dlMap map[string]string, rawDir string) []core.Finding {
+func ScanCariddi(dlMap map[string]string, rawDir string, logDir string) []core.Finding {
 	var findings []core.Finding
 	var urls []string
 	for u, p := range dlMap {
@@ -450,12 +559,16 @@ func ScanCariddi(dlMap map[string]string, rawDir string) []core.Finding {
 		cmd = exec.CommandContext(ctx, "sh", "-c", "cat "+urlListPath+" | cariddi -s -json")
 	}
 
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	_ = cmd.Run()
 
 	out := stdout.String()
 	os.WriteFile(filepath.Join(rawDir, "cariddi_findings.txt"), []byte(out), 0644)
+
+	// Write segregated tool log
+	core.WriteToolLog(logDir, "cariddi", out, stderr.String())
 
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
@@ -507,7 +620,7 @@ func ScanCariddi(dlMap map[string]string, rawDir string) []core.Finding {
 	return findings
 }
 
-func ScanSubjs(dlMap map[string]string, rawDir string) []core.Finding {
+func ScanSubjs(dlMap map[string]string, rawDir string, logDir string) []core.Finding {
 	var findings []core.Finding
 	var urls []string
 	for u, p := range dlMap {
@@ -532,12 +645,16 @@ func ScanSubjs(dlMap map[string]string, rawDir string) []core.Finding {
 		cmd = exec.CommandContext(ctx, "sh", "-c", "cat "+urlListPath+" | subjs")
 	}
 
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	_ = cmd.Run()
 
 	out := stdout.String()
 	os.WriteFile(filepath.Join(rawDir, "subjs_findings.txt"), []byte(out), 0644)
+
+	// Write segregated tool log
+	core.WriteToolLog(logDir, "subjs", out, stderr.String())
 
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
@@ -558,8 +675,15 @@ func ScanSubjs(dlMap map[string]string, rawDir string) []core.Finding {
 }
 
 // ScanMantra runs the Mantra tool for JS API key leak detection
-func ScanMantra(dlMap map[string]string, rawDir string) []core.Finding {
+func ScanMantra(dlMap map[string]string, rawDir string, logDir string) []core.Finding {
 	var findings []core.Finding
+
+	// Empty input check: skip if no real files in dlMap
+	if isDlMapEmpty(dlMap) {
+		core.Info("Mantra skipped — no downloaded files")
+		return findings
+	}
+
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 30)
@@ -585,9 +709,13 @@ func ScanMantra(dlMap map[string]string, rawDir string) []core.Finding {
 				cmd = exec.CommandContext(ctx, "sh", "-c", "cat "+fp+" | mantra")
 			}
 
-			var stdout bytes.Buffer
+			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
 			_ = cmd.Run()
+
+			// Write segregated tool log
+			core.WriteToolLog(logDir, "mantra", stdout.String(), stderr.String())
 
 			out := stdout.String()
 			var localFindings []core.Finding
