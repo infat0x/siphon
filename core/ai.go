@@ -36,9 +36,9 @@ type OpenAIResponse struct {
 
 // AnalyzeReportWithAI reads the generated findings and asks an AI model to evaluate them.
 func AnalyzeReportWithAI(findings []Finding, outputFile string) {
-	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	apiKey := strings.TrimSpace(os.Getenv("AI_API_KEY"))
 	if apiKey == "" {
-		Logf("\n  %s[AI]%s No OPENAI_API_KEY found in .env. Skipping AI analysis.\n", RED, RESET)
+		Logf("\n  %s[AI]%s No AI_API_KEY found in .env. Skipping AI analysis.\n", RED, RESET)
 		return
 	}
 
@@ -82,7 +82,7 @@ Match: [The matched string]
 Reason: [1 concise sentence on why this is a valid risk]
 ---`
 
-	modelName := os.Getenv("OPENAI_MODEL")
+	modelName := os.Getenv("AI_MODEL")
 	if modelName == "" {
 		modelName = "gpt-4o-mini"
 	}
@@ -103,7 +103,7 @@ Reason: [1 concise sentence on why this is a valid risk]
 	}
 
 	// Assuming standard OpenAI endpoint, can be swapped via an env variable if necessary.
-	apiURL := os.Getenv("OPENAI_API_URL")
+	apiURL := os.Getenv("AI_API_URL")
 	if apiURL == "" {
 		apiURL = "https://api.openai.com/v1/chat/completions"
 	}

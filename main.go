@@ -28,7 +28,7 @@ var requiredTools = []string{
 
 // checkAIAccess sends a test request to the OpenAI API to verify the API key is valid.
 func checkAIAccess(key string) bool {
-	apiURL := os.Getenv("OPENAI_API_URL")
+	apiURL := os.Getenv("AI_API_URL")
 	if apiURL == "" {
 		apiURL = "https://api.openai.com/v1/chat/completions"
 	}
@@ -71,15 +71,15 @@ func CheckDependencies() {
 	}
 
 	// Check AI
-	apiKey := os.Getenv("OPENAI_API_KEY")
+	apiKey := os.Getenv("AI_API_KEY")
 	if apiKey == "" {
-		missing = append(missing, "AI (OPENAI_API_KEY)")
-		rows = append(rows, []string{"[-]", "AI (OPENAI_API_KEY)", "missing"})
+		missing = append(missing, "AI (AI_API_KEY)")
+		rows = append(rows, []string{"[-]", "AI (AI_API_KEY)", "missing"})
 	} else if !checkAIAccess(apiKey) {
 		missing = append(missing, "AI (Invalid API Key or Unreachable)")
-		rows = append(rows, []string{"[-]", "AI (OPENAI_API_KEY)", "invalid/unreachable"})
+		rows = append(rows, []string{"[-]", "AI (AI_API_KEY)", "invalid/unreachable"})
 	} else {
-		rows = append(rows, []string{"[+]", "AI (OPENAI_API_KEY)", "ok"})
+		rows = append(rows, []string{"[+]", "AI (AI_API_KEY)", "ok"})
 	}
 
 	// Print the status table
