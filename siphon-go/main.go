@@ -23,6 +23,7 @@ import (
 var requiredTools = []string{
 	"katana", "gau", "hakrawler", "waybackurls", "subjs",
 	"nuclei", "trufflehog", "gitleaks", "jsluice", "cariddi",
+	"httpx", "jsleak", "mantra",
 }
 
 // CheckDependencies verifies all required tools are in $PATH.
@@ -251,6 +252,10 @@ func main() {
 		}
 
 		stats.SetLive(len(live))
+		if pbHost != nil {
+			pbHost.Stop()
+		}
+
 		if len(live) == 0 {
 			core.PrintError("No live hosts found")
 			os.Exit(0)
@@ -260,7 +265,7 @@ func main() {
 
 		// 2. URL Collection
 		core.PrintSection(2, 5, "URL Collection (Passive+Active)")
-		pbUrl, _ := pterm.DefaultProgressbar.WithTotal(7).WithTitle("Collection").WithWriter(core.Multi.NewWriter()).Start()
+		pbUrl, _ := pterm.DefaultProgressbar.WithTotal(5).WithTitle("Collection").WithWriter(core.Multi.NewWriter()).Start()
 		urlsFile := filepath.Join(dirs["urls"], "all_urls.txt")
 		var allUrls []string
 
@@ -273,7 +278,10 @@ func main() {
 					}
 				}
 			}
-			pbUrl.Add(7)
+			if pbUrl != nil {
+				pbUrl.Add(5)
+				pbUrl.Stop()
+			}
 			core.Logf("\n[2/5] Skipped collection — %d URLs loaded\n", len(allUrls))
 		} else {
 			var mu sync.Mutex
@@ -322,6 +330,9 @@ func main() {
 			}()
 
 			wg.Wait()
+			if pbUrl != nil {
+				pbUrl.Stop()
+			}
 
 			allUrls = core.Dedup(allUrls)
 			os.WriteFile(urlsFile, []byte(strings.Join(allUrls, "\n")+"\n"), 0644)
@@ -380,6 +391,9 @@ func main() {
 
 		stats.SetJsAll(len(jsAll))
 		stats.SetJsCustom(len(jsCustom))
+		if pbExtract != nil {
+			pbExtract.Stop()
+		}
 	} // end else mode
 
 	if *skipDownload {
@@ -398,6 +412,9 @@ func main() {
 	dlPb := core.StartProgressBar(len(targets), "Downloading")
 
 	dlMap := downloader.DownloadJS(targets, dirs["dl"], *threads, dlPb)
+	if dlPb != nil {
+		dlPb.Stop()
+	}
 	
 	stats.SetJsDl(len(dlMap))
 	stats.SetDlRate(fmt.Sprintf("%.1f%%", 100.0*float64(len(dlMap))/float64(len(targets))))
@@ -452,6 +469,9 @@ func main() {
 	runScanner("Mantra", func() []core.Finding { return scanner.ScanMantra(dlMap, dirs["raw"], logDir) })
 
 	wg.Wait()
+	if pbScan != nil {
+		pbScan.Stop()
+	}
 	reverseMap := make(map[string]string)
 	for u, p := range dlMap {
 		if p != "/dev/null" {
@@ -467,7 +487,8 @@ func main() {
 	}
 
 	// Secret Scanning old log removed; PrintFinalStats will show the final stats.
-	scanner.WriteReport(allFindings, filepath.Join(dirs["secrets"], "final_report.txt"), stats)
+	reportPath, _ := filepath.Abs(filepath.Join(dirs["secrets"], "final_report.txt"))
+	scanner.WriteReport(allFindings, reportPath, stats)
 
 	// Count severities for final stats
 	critical, high, medium := 0, 0, 0
