@@ -79,8 +79,9 @@ tar -xzf gitleaks_8.24.3_linux_x64.tar.gz && mv gitleaks /usr/local/bin/
 ## Installation
 
 ```bash
-# Navigate to the go directory
-cd siphon-go
+# Clone the repository
+git clone https://github.com/your-username/siphon.git
+cd siphon
 
 # Build the binary
 go build -o siphon main.go
