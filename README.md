@@ -171,3 +171,4 @@ output/
 > - All scanners run concurrently.
 > - Findings are deduplicated and aggregated by `type|match` before the final report.
 > - Siphon is now fully rewritten in Go, deprecating the Python v6 version.
+...
