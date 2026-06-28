@@ -86,3 +86,26 @@ html, body {
 ::selection {
   background: rgba(255, 51, 0, 0.3);
 }
+
+/* Logo border radius */
+.VPNavBarTitle .logo {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Sidebar vertical lines (|) */
+.VPSidebarItem.level-2,
+.VPSidebarItem.level-3,
+.VPSidebarItem.level-4,
+.VPSidebarItem.level-5 {
+  border-left: 1px solid #333333;
+  margin-left: 12px;
+  padding-left: 12px;
+}
+
+.VPSidebarItem.level-2.is-active,
+.VPSidebarItem.level-3.is-active,
+.VPSidebarItem.level-4.is-active,
+.VPSidebarItem.level-5.is-active {
+  border-left-color: var(--vp-c-brand-1);
+}
