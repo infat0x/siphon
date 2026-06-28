@@ -36,7 +36,7 @@ type OpenAIResponse struct {
 
 // AnalyzeReportWithAI reads the generated findings and asks an AI model to evaluate them.
 func AnalyzeReportWithAI(findings []Finding, outputFile string) {
-	apiKey := os.Getenv("OPENAI_API_KEY")
+	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	if apiKey == "" {
 		Logf("\n  %s[AI]%s No OPENAI_API_KEY found in .env. Skipping AI analysis.\n", RED, RESET)
 		return
