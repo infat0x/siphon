@@ -1,7 +1,7 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  Siphon Tool Installer — auto install & PATH setup          ║
-# ║  Run: chmod +x install_tools.sh && ./install_tools.sh       ║
+# ║  Siphon-Go Tool Installer — auto install & PATH setup        ║
+# ║  Run: chmod +x install_tools.sh && ./install_tools.sh        ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 set -e
@@ -16,15 +16,15 @@ info() { echo -e "  ${CYAN}→${RESET}  $1"; }
 
 echo -e "${BOLD}${CYAN}"
 echo "  ┌──────────────────────────────────────────┐"
-echo "  │   Siphon Tool Installer                   │"
-echo "  │   All required + optional tools           │"
+echo "  │   Siphon-Go Tool Installer               │"
+echo "  │   All required + optional tools          │"
 echo "  └──────────────────────────────────────────┘"
 echo -e "${RESET}"
 
 # ─── Check prerequisites ───────────────────────────────────────
 check_prereq() {
     local missing=0
-    for cmd in go git python3 pip3 curl wget; do
+    for cmd in go git curl wget; do
         if command -v "$cmd" &>/dev/null; then
             ok "$cmd  $(command -v $cmd)"
         else
@@ -59,18 +59,16 @@ declare -A GO_TOOLS=(
     ["httpx"]="github.com/projectdiscovery/httpx/cmd/httpx@latest"
     ["gau"]="github.com/lc/gau/v2/cmd/gau@latest"
     ["katana"]="github.com/projectdiscovery/katana/cmd/katana@latest"
-    ["gf"]="github.com/tomnomnom/gf@latest"
     # Optional URL collectors
     ["waybackurls"]="github.com/tomnomnom/waybackurls@latest"
     ["hakrawler"]="github.com/hakluke/hakrawler@latest"
-    ["anew"]="github.com/tomnomnom/anew@latest"
     ["subjs"]="github.com/lc/subjs@latest"
-    # v6 scanners & fuzzers
+    # v7 scanners
     ["jsluice"]="github.com/BishopFox/jsluice/cmd/jsluice@latest"
     ["jsleak"]="github.com/byt3hx/jsleak@latest"
     ["nuclei"]="github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
     ["cariddi"]="github.com/edoardottt/cariddi/cmd/cariddi@latest"
-    ["ffuf"]="github.com/ffuf/ffuf/v2@latest"
+    ["mantra"]="github.com/MrEmpy/mantra@latest"
 )
 
 info "Installing Go tools …"
@@ -137,63 +135,6 @@ install_gitleaks() {
 }
 install_gitleaks
 
-# ─── SecretFinder (Python) ─────────────────────────────────────
-install_secretfinder() {
-    if command -v SecretFinder.py &>/dev/null || [ -f /opt/SecretFinder/SecretFinder.py ]; then
-        ok "${BOLD}SecretFinder${RESET}  already installed"
-        return
-    fi
-    info "Installing SecretFinder …"
-    local TARGET="/opt/SecretFinder"
-    if [ -w /opt ] || sudo test -w /opt 2>/dev/null; then
-        sudo git clone --depth 1 https://github.com/m4ll0k/SecretFinder.git "$TARGET" 2>/dev/null || true
-        sudo pip3 install -r "$TARGET/requirements.txt" --break-system-packages 2>/dev/null || \
-            pip3 install -r "$TARGET/requirements.txt" 2>/dev/null || true
-        sudo ln -sf "$TARGET/SecretFinder.py" /usr/local/bin/SecretFinder.py 2>/dev/null || true
-        ok "${BOLD}SecretFinder${RESET}  installed → $TARGET"
-    else
-        local TARGET="$HOME/tools/SecretFinder"
-        git clone --depth 1 https://github.com/m4ll0k/SecretFinder.git "$TARGET" 2>/dev/null || true
-        pip3 install -r "$TARGET/requirements.txt" --break-system-packages 2>/dev/null || \
-            pip3 install -r "$TARGET/requirements.txt" 2>/dev/null || true
-        ok "${BOLD}SecretFinder${RESET}  installed → $TARGET"
-    fi
-}
-install_secretfinder
-
-# ─── git-dumper (pip) ──────────────────────────────────────────
-install_gitdumper() {
-    if command -v git-dumper &>/dev/null; then
-        ok "${BOLD}git-dumper${RESET}  already installed"
-        return
-    fi
-    info "Installing git-dumper …"
-    if pip3 install git-dumper --break-system-packages 2>/dev/null || \
-       pip3 install git-dumper 2>/dev/null; then
-        ok "${BOLD}git-dumper${RESET}  installed"
-    else
-        err "git-dumper  failed — try: pip3 install git-dumper"
-    fi
-}
-install_gitdumper
-
-# ─── gf patterns ───────────────────────────────────────────────
-install_gf_patterns() {
-    local GF_DIR="$HOME/.gf"
-    if [ -d "$GF_DIR" ] && [ "$(ls -A $GF_DIR 2>/dev/null)" ]; then
-        ok "${BOLD}gf patterns${RESET}  already exist ($GF_DIR)"
-        return
-    fi
-    info "Installing gf patterns …"
-    mkdir -p "$GF_DIR"
-    local TMP=$(mktemp -d)
-    git clone --depth 1 https://github.com/1ndianl33t/Gf-Patterns.git "$TMP" 2>/dev/null || true
-    cp "$TMP"/*.json "$GF_DIR/" 2>/dev/null || true
-    rm -rf "$TMP"
-    ok "${BOLD}gf patterns${RESET}  installed → $GF_DIR"
-}
-install_gf_patterns
-
 # ─── nuclei templates ─────────────────────────────────────────
 update_nuclei_templates() {
     if command -v nuclei &>/dev/null; then
@@ -240,8 +181,8 @@ echo "  │   Installation Complete                  │"
 echo -e "  └──────────────────────────────────────────┘${RESET}"
 echo ""
 
-ALL_TOOLS=(httpx gau katana gf trufflehog waybackurls hakrawler anew
-           subjs jsluice jsleak nuclei cariddi ffuf gitleaks git-dumper)
+ALL_TOOLS=(httpx gau katana trufflehog waybackurls hakrawler
+           subjs jsluice jsleak nuclei cariddi gitleaks mantra)
 
 installed=0
 missing=0
@@ -263,5 +204,5 @@ if [ $missing -eq 0 ]; then
 else
     echo -e "  ${YELLOW}${BOLD}Some tools missing. You can still run:${RESET}"
 fi
-echo -e "  ${DIM}python3 siphon.py --domain example.com -o output/${RESET}"
+echo -e "  ${DIM}siphon -domain example.com -o output/${RESET}"
 echo ""
