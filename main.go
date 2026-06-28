@@ -28,18 +28,30 @@ var requiredTools = []string{
 
 // checkAIAccess sends a test request to the OpenAI API to verify the API key is valid.
 func checkAIAccess(key string) bool {
-	req, err := http.NewRequest("GET", "https://api.openai.com/v1/models", nil)
+	apiURL := os.Getenv("OPENAI_API_URL")
+	if apiURL == "" {
+		apiURL = "https://api.openai.com/v1/chat/completions"
+	}
+
+	// Send a minimal request. If we get 401, the key is bad. 
+	// If we get 200, 400 (bad format), or 404 (model not found), the API is reachable.
+	body := `{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "test"}], "max_tokens": 1}`
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(body))
 	if err != nil {
 		return false
 	}
+	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+key)
+	
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode == 200
+	
+	// 401 and 403 mean the key is definitely invalid or blocked.
+	return resp.StatusCode != 401 && resp.StatusCode != 403
 }
 
 // CheckDependencies verifies all required tools are in $PATH.
