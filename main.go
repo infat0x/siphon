@@ -142,8 +142,16 @@ func main() {
 
 	core.PrintBanner()
 
-	// Load .env if it exists (before checks)
-	_ = godotenv.Load()
+	// Load .env from multiple locations (it won't overwrite existing vars, so order is priority)
+	_ = godotenv.Load() // 1. Current working directory
+
+	if exePath, err := os.Executable(); err == nil {
+		_ = godotenv.Load(filepath.Join(filepath.Dir(exePath), ".env")) // 2. Binary directory
+	}
+
+	if home, err := os.UserHomeDir(); err == nil {
+		_ = godotenv.Load(filepath.Join(home, ".siphon.env")) // 3. Home directory
+	}
 
 	// Pre-flight: check all required tool dependencies
 	CheckDependencies()
