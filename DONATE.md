@@ -14,13 +14,9 @@ Maintaining this project, integrating AI (LLMs), and developing high-performance
 The most direct way to support the project is via Cryptocurrency.
 
 > [!IMPORTANT]
-> **Please ensure you are sending to the correct network.**
+> **Please ensure you are sending to the correct network (BEP20 / BNB Smart Chain).**
 
-- **USDT (TRC20):** `TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`
-- **Bitcoin (BTC):** `1XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`
-- **Ethereum (ETH):** `0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`
-
-*(Zəhmət olmasa yuxarıdakı "X" ilə olan hissələri öz əsl kripto cüzdan ünvanlarınızla əvəz edin)*
+- **USDT (BEP20):** `0xdd49c50f08ca3c2db1ac6837de50ab3dc0ac6c88`
 
 ---
 
