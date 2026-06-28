@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +26,22 @@ var requiredTools = []string{
 	"httpx", "jsleak", "mantra",
 }
 
+// checkAIAccess sends a test request to the OpenAI API to verify the API key is valid.
+func checkAIAccess(key string) bool {
+	req, err := http.NewRequest("GET", "https://api.openai.com/v1/models", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Add("Authorization", "Bearer "+key)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == 200
+}
+
 // CheckDependencies verifies all required tools are in $PATH.
 // Prints status for each tool and prompts the user if any are missing.
 func CheckDependencies() {
@@ -42,9 +59,13 @@ func CheckDependencies() {
 	}
 
 	// Check AI
-	if os.Getenv("OPENAI_API_KEY") == "" {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
 		missing = append(missing, "AI (OPENAI_API_KEY)")
 		rows = append(rows, []string{"[-]", "AI (OPENAI_API_KEY)", "missing"})
+	} else if !checkAIAccess(apiKey) {
+		missing = append(missing, "AI (Invalid API Key or Unreachable)")
+		rows = append(rows, []string{"[-]", "AI (OPENAI_API_KEY)", "invalid/unreachable"})
 	} else {
 		rows = append(rows, []string{"[+]", "AI (OPENAI_API_KEY)", "ok"})
 	}
