@@ -35,7 +35,7 @@ type OpenAIResponse struct {
 }
 
 // AnalyzeReportWithAI reads the generated findings and asks an AI model to evaluate them.
-func AnalyzeReportWithAI(findings []Finding) {
+func AnalyzeReportWithAI(findings []Finding, outputFile string) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		Logf("\n  %s[AI]%s No OPENAI_API_KEY found in .env. Skipping AI analysis.\n", RED, RESET)
@@ -83,16 +83,18 @@ You MUST format your response exactly according to the following structure:
 Provide a 2-3 sentence high-level overview of the scan results. State whether critical secrets were found or if the results are mostly noise.
 
 ### 2. High-Risk Findings (True Positives)
-List only the findings that have a high probability of being valid and exploitable. For each, include:
-- Secret Type:
-- Location (URL):
-- Risk Impact: (e.g., "Allows full account takeover", "Exposes internal API")
+List only the findings that have a high probability of being valid and exploitable. For each valid finding, you MUST explicitly provide:
+- **Secret Type:** (e.g. AWS Key, Stripe Token)
+- **Match:** The snippet of the secret that was found
+- **Location (URL):** Where it was found
+- **Explanation:** Provide a detailed 1-2 sentence explanation of *why* this specific match is valid (e.g., "The entropy and format match a live production key", "It is located inside a production .env file").
+- **Risk Impact:** What an attacker could do with this.
 
 ### 3. False Positives & Low-Risk Noise
-Briefly list or group the findings that you consider false positives or low risk (e.g., placeholder tokens, public keys, test credentials). Explain *why* you discarded them in 1 sentence.
+Briefly list or group the findings that you consider false positives or low risk (e.g., placeholder tokens, public keys, test credentials). Explain *why* you discarded them.
 
 ### 4. Actionable Recommendations
-Provide 1-2 concrete steps for the security team (e.g., "Revoke the exposed Stripe token immediately", "Investigate the exposed source map for further logic flaws").`
+Provide concrete steps for the security team.`
 
 	modelName := os.Getenv("OPENAI_MODEL")
 	if modelName == "" {
@@ -172,6 +174,16 @@ Provide 1-2 concrete steps for the security team (e.g., "Revoke the exposed Stri
 			fmt.Printf("  %s│%s %s\n", MAGENTA, RESET, line)
 		}
 		fmt.Printf("  %s╰─────────────────────────────────────────────────────────────%s\n\n", MAGENTA, RESET)
+
+		// Save to file
+		if outputFile != "" {
+			err := os.WriteFile(outputFile, []byte(responseMsg), 0644)
+			if err == nil {
+				Logf("  %s[AI]%s Summary successfully saved to %s\n", GREEN, RESET, outputFile)
+			} else {
+				Logf("  %s[AI]%s Failed to save summary to file: %v\n", RED, RESET, err)
+			}
+		}
 	} else {
 		Logf("  %s[AI]%s Received empty response from provider.\n", RED, RESET)
 	}

@@ -485,6 +485,7 @@ func main() {
 	ans = strings.TrimSpace(strings.ToLower(ans))
 
 	if ans == "y" || ans == "yes" {
-		core.AnalyzeReportWithAI(allFindings)
+		aiOutputPath := filepath.Join(dirs["secrets"], "ai_summary.txt")
+		core.AnalyzeReportWithAI(allFindings, aiOutputPath)
 	}
 }
