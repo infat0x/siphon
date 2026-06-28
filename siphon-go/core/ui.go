@@ -11,9 +11,20 @@ import (
 	"github.com/pterm/pterm"
 )
 
+// ── Color Palette ────────────────────────────────────────────────────────
+// Monochrome palette: white for emphasis, gray for structure, dim for noise.
+const (
+	cWhite = "\033[97m"     // bright white — emphasis
+	cGray  = "\033[38;5;245m" // mid gray — labels
+	cDim   = "\033[38;5;240m" // dark gray — structure lines
+	cGreen = "\033[38;5;35m"  // muted green — success
+	cRed   = "\033[38;5;160m" // muted red — errors
+	cAmber = "\033[38;5;214m" // amber — warnings
+)
+
 var Multi *pterm.MultiPrinter
 
-// ClearScreen clears the terminal for a clean start
+// ClearScreen clears the terminal for a clean start.
 func ClearScreen() {
 	if runtime.GOOS == "windows" {
 		cmd := exec.Command("cmd", "/c", "cls")
@@ -24,162 +35,122 @@ func ClearScreen() {
 	}
 }
 
-// PrintBanner prints a sleek, minimal branded header
+// PrintBanner prints a minimal one-line branded header.
 func PrintBanner() {
 	ClearScreen()
-
-	// Top gradient line
-	gradientLine := ""
-	colors := []string{"\033[38;5;39m", "\033[38;5;38m", "\033[38;5;37m", "\033[38;5;36m", "\033[38;5;35m", "\033[38;5;34m"}
-	blockChar := "━"
-	for i := 0; i < 60; i++ {
-		gradientLine += colors[i%len(colors)] + blockChar
-	}
-	fmt.Println(gradientLine + RESET)
 	fmt.Println()
-
-	// Brand name with gradient coloring
-	s := "S I P H O N"
-	brandColors := []string{
-		"\033[38;5;51m", // bright cyan
-		"\033[38;5;45m",
-		"\033[38;5;39m", // blue
-		"\033[38;5;33m",
-		"\033[38;5;27m",
-		"\033[38;5;21m", // deep blue
-		"\033[38;5;57m", // purple
-		"\033[38;5;93m",
-		"\033[38;5;129m",
-		"\033[38;5;165m", // magenta
-		"\033[38;5;201m",
-	}
-	brand := "    "
-	chars := strings.Split(s, "")
-	for i, c := range chars {
-		brand += brandColors[i%len(brandColors)] + BOLD + c
-	}
-	fmt.Println(brand + RESET)
-
-	// Subtitle
-	fmt.Printf("    %s%sv7 Ultra  │  14 Scan Engines  │  Secret Hunter%s\n", DIM, "\033[38;5;245m", RESET)
-	fmt.Println()
-
-	// Bottom gradient line
-	fmt.Println(gradientLine + RESET)
-	fmt.Println()
+	fmt.Printf("  %s%ssiphon%s %sv7%s %s|%s js secret scanner %s|%s 14 engines%s\n",
+		cWhite, BOLD, RESET,
+		cGray, RESET,
+		cDim, RESET,
+		cDim, RESET,
+		RESET)
+	PrintDivider()
 }
 
-// PrintSection prints a styled section header
+// PrintSection prints a step header: [1/5] title
 func PrintSection(step int, total int, title string) {
-	stepColor := "\033[38;5;39m"  // blue
-	titleColor := "\033[38;5;255m" // white
-	dimColor := "\033[38;5;240m"
-
-	fmt.Printf("  %s%s[%d/%d]%s %s%s%s%s\n",
-		stepColor, BOLD, step, total, RESET,
-		titleColor, BOLD, title, RESET)
-
-	// thin underline
-	lineLen := len(title) + 8
-	line := strings.Repeat("─", lineLen)
-	fmt.Printf("  %s%s%s\n", dimColor, line, RESET)
+	fmt.Println()
+	fmt.Printf("  %s[%d/%d]%s %s%s%s\n",
+		cGray, step, total, RESET,
+		cWhite, title, RESET)
 }
 
-// PrintResult prints a result line with icon
+// PrintResult prints a key-value line:  > label    value
 func PrintResult(icon string, label string, value interface{}, valueColor string) {
 	if valueColor == "" {
-		valueColor = "\033[38;5;48m" // green
+		valueColor = cWhite
 	}
-	fmt.Printf("  %s  %-20s %s%s%v%s\n",
-		icon, label, valueColor, BOLD, value, RESET)
+	// icon is ignored in the new UI — we use ">" prefix
+	fmt.Printf("  %s>%s %-16s %s%s%v%s\n",
+		cDim, RESET,
+		label,
+		valueColor, BOLD, value, RESET)
 }
 
-// PrintSuccess prints a success completion message
+// PrintSuccess prints a completion message.
 func PrintSuccess(msg string) {
-	fmt.Printf("  %s✓%s  %s\n", "\033[38;5;48m", RESET, msg)
+	fmt.Printf("  %s%s[OK]%s %s\n", cGreen, BOLD, RESET, msg)
 }
 
-// PrintWarning prints a warning message
+// PrintWarning prints a warning message.
 func PrintWarning(msg string) {
-	fmt.Printf("  %s⚠%s  %s\n", "\033[38;5;220m", RESET, msg)
+	fmt.Printf("  %s%s[WARN]%s %s\n", cAmber, BOLD, RESET, msg)
 }
 
-// PrintError prints an error message
+// PrintError prints an error message.
 func PrintError(msg string) {
-	fmt.Printf("  %s✗%s  %s\n", "\033[38;5;196m", RESET, msg)
+	fmt.Printf("  %s%s[ERR]%s %s\n", cRed, BOLD, RESET, msg)
 }
 
-// PrintDivider prints a subtle divider
+// PrintDivider prints a subtle horizontal rule.
 func PrintDivider() {
-	fmt.Printf("  %s%s%s\n", "\033[38;5;236m", strings.Repeat("─", 56), RESET)
+	fmt.Printf("  %s%s%s\n", cDim, strings.Repeat("\u2500", 52), RESET)
 }
 
-// PrintScanEngineStart prints the scan engine launch header
+// PrintScanEngineStart prints a compact scan phase header.
 func PrintScanEngineStart(engineCount int) {
 	fmt.Println()
-	boxTop := "\033[38;5;39m" + "  ┌" + strings.Repeat("─", 52) + "┐" + RESET
-	boxMid := fmt.Sprintf("  │%s  ⚡ Launching %d Scan Engines...                    %s│", "\033[38;5;255m"+BOLD, engineCount, RESET+"\033[38;5;39m")
-	boxBot := "\033[38;5;39m" + "  └" + strings.Repeat("─", 52) + "┘" + RESET
-	fmt.Println(boxTop)
-	fmt.Println(boxMid)
-	fmt.Println(boxBot)
-	fmt.Println()
+	PrintDivider()
+	fmt.Printf("  %s%s%d scan engines starting%s\n", cWhite, BOLD, engineCount, RESET)
+	PrintDivider()
 }
 
-// PrintFinalStats prints the final statistics box
+// PrintFinalStats prints the final statistics block.
 func PrintFinalStats(findings int, critical int, high int, medium int, elapsed time.Duration) {
 	fmt.Println()
-	bc := "\033[38;5;39m"
-	fmt.Println(bc + "  ┌" + strings.Repeat("─", 52) + "┐" + RESET)
-	fmt.Printf("  │%s  %-50s%s│\n", "\033[38;5;255m"+BOLD, "SCAN COMPLETE", RESET+bc)
-	fmt.Println(bc + "  ├" + strings.Repeat("─", 52) + "┤" + RESET)
+	PrintDivider()
+	fmt.Printf("  %s%sscan complete%s\n", cWhite, BOLD, RESET)
+	PrintDivider()
 
-	fmt.Printf("  │  %-18s %s%-30d%s  │\n", "Total Findings:", "\033[38;5;255m"+BOLD, findings, RESET+bc)
+	fmt.Printf("  %stotal%s       %s%s%d%s\n", cGray, RESET, cWhite, BOLD, findings, RESET)
 	if critical > 0 {
-		fmt.Printf("  │  %-18s %s%-30d%s  │\n", "🔴 CRITICAL:", "\033[38;5;196m"+BOLD, critical, RESET+bc)
+		fmt.Printf("  %scritical%s    %s%s%d%s\n", cGray, RESET, cRed, BOLD, critical, RESET)
 	}
 	if high > 0 {
-		fmt.Printf("  │  %-18s %s%-30d%s  │\n", "🟠 HIGH:", "\033[38;5;208m"+BOLD, high, RESET+bc)
+		fmt.Printf("  %shigh%s        %s%s%d%s\n", cGray, RESET, cAmber, BOLD, high, RESET)
 	}
 	if medium > 0 {
-		fmt.Printf("  │  %-18s %s%-30d%s  │\n", "🟡 MEDIUM:", "\033[38;5;220m"+BOLD, medium, RESET+bc)
+		fmt.Printf("  %smedium%s      %s%s%d%s\n", cGray, RESET, cWhite, BOLD, medium, RESET)
 	}
-	fmt.Printf("  │  %-18s %s%-30s%s  │\n", "Duration:", "\033[38;5;245m", elapsed.Round(time.Second).String(), RESET+bc)
+	fmt.Printf("  %sduration%s    %s%s\n", cGray, RESET, elapsed.Round(time.Second).String(), RESET)
 
-	fmt.Println(bc + "  └" + strings.Repeat("─", 52) + "┘" + RESET)
+	PrintDivider()
 	fmt.Println()
 }
 
+// ── pterm setup ─────────────────────────────────────────────────────────
+
 func InitUI() {
-	// Sleek spinner
-	pterm.DefaultSpinner.Sequence = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	pterm.DefaultSpinner.Style = pterm.NewStyle(pterm.FgCyan)
+	// Spinner — minimal dots, no emoji
+	pterm.DefaultSpinner.Sequence = []string{". ", ".. ", "...", ".. ", ". ", "   "}
+	pterm.DefaultSpinner.Style = pterm.NewStyle(pterm.FgWhite)
 	pterm.DefaultSpinner.SuccessPrinter = &pterm.PrefixPrinter{
-		MessageStyle: pterm.NewStyle(pterm.FgGreen),
-		Prefix:       pterm.Prefix{Text: " ✓ ", Style: pterm.NewStyle(pterm.FgGreen, pterm.Bold)},
+		MessageStyle: pterm.NewStyle(pterm.FgWhite),
+		Prefix:       pterm.Prefix{Text: " [OK] ", Style: pterm.NewStyle(pterm.FgGreen, pterm.Bold)},
 	}
 	pterm.DefaultSpinner.FailPrinter = &pterm.PrefixPrinter{
-		MessageStyle: pterm.NewStyle(pterm.FgRed),
-		Prefix:       pterm.Prefix{Text: " ✗ ", Style: pterm.NewStyle(pterm.FgRed, pterm.Bold)},
+		MessageStyle: pterm.NewStyle(pterm.FgWhite),
+		Prefix:       pterm.Prefix{Text: " [FAIL] ", Style: pterm.NewStyle(pterm.FgRed, pterm.Bold)},
 	}
 
-	// Clean prefixes
-	pterm.Info.Prefix = pterm.Prefix{Text: "  ℹ ", Style: pterm.NewStyle(pterm.FgCyan)}
-	pterm.Success.Prefix = pterm.Prefix{Text: "  ✓ ", Style: pterm.NewStyle(pterm.FgGreen, pterm.Bold)}
-	pterm.Error.Prefix = pterm.Prefix{Text: "  ✗ ", Style: pterm.NewStyle(pterm.FgRed, pterm.Bold)}
-	pterm.Warning.Prefix = pterm.Prefix{Text: "  ⚠ ", Style: pterm.NewStyle(pterm.FgYellow)}
+	// Prefix printers — clean text markers
+	pterm.Info.Prefix = pterm.Prefix{Text: "  [i] ", Style: pterm.NewStyle(pterm.FgWhite)}
+	pterm.Success.Prefix = pterm.Prefix{Text: "  [OK] ", Style: pterm.NewStyle(pterm.FgGreen, pterm.Bold)}
+	pterm.Error.Prefix = pterm.Prefix{Text: "  [ERR] ", Style: pterm.NewStyle(pterm.FgRed, pterm.Bold)}
+	pterm.Warning.Prefix = pterm.Prefix{Text: "  [WARN] ", Style: pterm.NewStyle(pterm.FgYellow)}
 
-	// Progress bar — sleek minimal style
-	pterm.ThemeDefault.ProgressbarTitleStyle = *pterm.NewStyle(pterm.FgLightCyan)
-	pterm.ThemeDefault.ProgressbarBarStyle = *pterm.NewStyle(pterm.FgCyan)
+	// Progress bar — minimal, monochrome
+	pterm.ThemeDefault.ProgressbarTitleStyle = *pterm.NewStyle(pterm.FgWhite)
+	pterm.ThemeDefault.ProgressbarBarStyle = *pterm.NewStyle(pterm.FgWhite)
 
-	pterm.DefaultProgressbar.BarCharacter = "█"
-	pterm.DefaultProgressbar.LastCharacter = "█"
-	pterm.DefaultProgressbar.BarFiller = "░"
+	pterm.DefaultProgressbar.BarCharacter = "#"
+	pterm.DefaultProgressbar.LastCharacter = "#"
+	pterm.DefaultProgressbar.BarFiller = "-"
 	pterm.DefaultProgressbar.ShowPercentage = true
 	pterm.DefaultProgressbar.ShowCount = true
 	pterm.DefaultProgressbar.ShowElapsedTime = true
-	pterm.DefaultProgressbar.BarStyle = pterm.NewStyle(pterm.FgCyan)
+	pterm.DefaultProgressbar.BarStyle = pterm.NewStyle(pterm.FgWhite)
 	pterm.DefaultProgressbar.TitleStyle = pterm.NewStyle(pterm.FgWhite, pterm.Bold)
 
 	Multi, _ = pterm.DefaultMultiPrinter.Start()

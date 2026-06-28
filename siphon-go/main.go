@@ -35,9 +35,9 @@ func CheckDependencies() {
 		_, err := exec.LookPath(tool)
 		if err != nil {
 			missing = append(missing, tool)
-			rows = append(rows, []string{"❌", tool, "Missing"})
+			rows = append(rows, []string{"[-]", tool, "missing"})
 		} else {
-			rows = append(rows, []string{"✅", tool, "OK"})
+			rows = append(rows, []string{"[+]", tool, "ok"})
 		}
 	}
 
@@ -56,7 +56,7 @@ func CheckDependencies() {
 
 	// Some tools are missing — prompt user
 	core.PrintWarning(fmt.Sprintf("%d/%d tools missing: %s", len(missing), len(requiredTools), strings.Join(missing, ", ")))
-	fmt.Print("  ⚠️  Some required tools are missing. Do you want to continue anyway? [y/N]: ")
+	fmt.Print("  continue anyway? [y/N]: ")
 
 	reader := bufio.NewReader(os.Stdin)
 	response, _ := reader.ReadString('\n')
@@ -148,10 +148,10 @@ func main() {
 	if err := core.InitLogger(logDir); err == nil {
 		defer core.CloseLogger()
 	} else {
-		core.Logf("  %s⚠%s  Could not initialize debug logger: %v\n", core.YELLOW, core.RESET, err)
+		core.Logf("  %s[WARN]%s could not initialize debug logger: %v\n", core.YELLOW, core.RESET, err)
 	}
 
-	core.PrintResult("📂", "Output", dirs["base"], "")
+	core.PrintResult("", "output", dirs["base"], "")
 	core.PrintDivider()
 
 	var jsAll []string
@@ -162,8 +162,8 @@ func main() {
 	if *jsUrl != "" {
 		// SINGLE JS URL MODE
 		urlStr := core.NormaliseHost(*jsUrl)
-		core.PrintResult("🎯", "Mode", "single-url", "\033[38;5;39m")
-		core.PrintResult("🌐", "Target", urlStr, "\033[38;5;51m")
+		core.PrintResult("", "mode", "single-url", "")
+		core.PrintResult("", "target", urlStr, "")
 		
 		jsAll = []string{urlStr}
 		jsCustom = []string{urlStr}
@@ -188,8 +188,8 @@ func main() {
 			tmpSubs := filepath.Join(*outDir, "_domain_input.txt")
 			os.WriteFile(tmpSubs, []byte(domainUrl+"\n"), 0644)
 			subsList = []string{domainUrl}
-			core.PrintResult("🎯", "Mode", "single-domain", "\033[38;5;39m")
-			core.PrintResult("🌐", "Target", domainUrl, "\033[38;5;51m")
+			core.PrintResult("", "mode", "single-domain", "")
+			core.PrintResult("", "target", domainUrl, "")
 		} else if *pathFilter != "" && strings.HasPrefix(*pathFilter, "http") {
 			// Extract domain from URL provided in pathFilter to run scan
 			singleDomain = true
@@ -204,8 +204,8 @@ func main() {
 			tmpSubs := filepath.Join(*outDir, "_domain_input.txt")
 			os.WriteFile(tmpSubs, []byte(domainUrl+"\n"), 0644)
 			subsList = []string{domainUrl}
-			core.PrintResult("🎯", "Mode", "single-domain (extracted)", "\033[38;5;39m")
-			core.PrintResult("🌐", "Target", domainUrl, "\033[38;5;51m")
+			core.PrintResult("", "mode", "single-domain (extracted)", "")
+			core.PrintResult("", "target", domainUrl, "")
 		} else if *subs != "" {
 			data, err := os.ReadFile(*subs)
 			if err != nil {
@@ -218,7 +218,7 @@ func main() {
 					subsList = append(subsList, l)
 				}
 			}
-			core.PrintResult("📜", "Loaded hosts", len(subsList), "")
+			core.PrintResult("", "loaded hosts", len(subsList), "")
 		}
 
 		// 1. Live Hosts
@@ -325,7 +325,7 @@ func main() {
 
 			allUrls = core.Dedup(allUrls)
 			os.WriteFile(urlsFile, []byte(strings.Join(allUrls, "\n")+"\n"), 0644)
-			core.PrintResult("🔗", "Unique URLs", len(allUrls), "\033[38;5;220m")
+			core.PrintResult("", "unique urls", len(allUrls), "")
 		}
 		stats.SetUrls(len(allUrls))
 		core.PrintSuccess(fmt.Sprintf("URL Collection complete [%d URLs]", len(allUrls)))
@@ -337,7 +337,7 @@ func main() {
 		var jsSet []string
 
 		if *pathFilter != "" {
-			core.Logf("\n  %s→%s  %sPath Filter active:%s Scraping HTML of %s%s%s directly for JS targets...\n", core.CYAN, core.RESET, core.BOLD, core.RESET, core.YELLOW, *pathFilter, core.RESET)
+			core.Logf("\n  %s>%s %spath filter active:%s scraping %s%s%s for JS targets...\n", core.CYAN, core.RESET, core.BOLD, core.RESET, core.YELLOW, *pathFilter, core.RESET)
 			var targetPaths []string
 			if strings.HasPrefix(*pathFilter, "http") {
 				targetPaths = append(targetPaths, *pathFilter)

@@ -82,15 +82,14 @@ func WriteReport(allFindings []core.Finding, reportFile string, stats *core.Stat
 		fmt.Sprintf("  High-confidence: %d", len(highConf)),
 		sep,
 		"",
-		"  ┌─── SEVERITY BREAKDOWN ──────────────────────────────────────────┐",
-		fmt.Sprintf("  │  🔴 CRITICAL : %-5d                                           │", sevCounts["CRITICAL"]),
-		fmt.Sprintf("  │  🟠 HIGH     : %-5d                                           │", sevCounts["HIGH"]),
-		fmt.Sprintf("  │  🟡 MEDIUM   : %-5d                                           │", sevCounts["MEDIUM"]),
-		fmt.Sprintf("  │  🔵 LOW      : %-5d                                           │", sevCounts["LOW"]),
-		fmt.Sprintf("  │  ⚪ INFO     : %-5d                                           │", sevCounts["INFO"]),
-		"  └──────────────────────────────────────────────────────────────────┘",
+		"  SEVERITY BREAKDOWN",
+		fmt.Sprintf("    CRITICAL : %-5d", sevCounts["CRITICAL"]),
+		fmt.Sprintf("    HIGH     : %-5d", sevCounts["HIGH"]),
+		fmt.Sprintf("    MEDIUM   : %-5d", sevCounts["MEDIUM"]),
+		fmt.Sprintf("    LOW      : %-5d", sevCounts["LOW"]),
+		fmt.Sprintf("    INFO     : %-5d", sevCounts["INFO"]),
 		"",
-		"  ┌─── SCANNER RESULTS ─────────────────────────────────────────────┐",
+		"  SCANNER RESULTS",
 	}
 
 	// Sort tools by count descending
@@ -103,44 +102,10 @@ func WriteReport(allFindings []core.Finding, reportFile string, stats *core.Stat
 	})
 
 	for _, t := range toolNames {
-		icon := "  "
-		switch t {
-		case "regex", "regex-keyword":
-			icon = "🔍"
-		case "entropy":
-			icon = "🔥"
-		case "base64-decoder":
-			icon = "🔓"
-		case "inline-scanner":
-			icon = "📝"
-		case "source-map":
-			icon = "🗺️"
-		case "config-leak":
-			icon = "⚙️"
-		case "trufflehog":
-			icon = "🐷"
-		case "gitleaks":
-			icon = "🔑"
-		case "jsluice":
-			icon = "🧃"
-		case "jsleak":
-			icon = "💧"
-		case "nuclei":
-			icon = "☢️"
-		case "cariddi":
-			icon = "🦈"
-		case "mantra":
-			icon = "🐍"
-		case "subjs":
-			icon = "📡"
-		}
-		line := fmt.Sprintf("  │  %s %-18s : %-5d findings                          │", icon, t, toolCounts[t])
+		line := fmt.Sprintf("    - %-18s : %d findings", t, toolCounts[t])
 		lines = append(lines, line)
 	}
-	lines = append(lines,
-		"  └──────────────────────────────────────────────────────────────────┘",
-		"",
-	)
+	lines = append(lines, "")
 
 	if len(highConf) == 0 {
 		lines = append(lines,
@@ -166,19 +131,9 @@ func WriteReport(allFindings []core.Finding, reportFile string, stats *core.Stat
 				continue
 			}
 
-			sevIcon := "⚪"
-			switch sev {
-			case "CRITICAL":
-				sevIcon = "🔴"
-			case "HIGH":
-				sevIcon = "🟠"
-			case "MEDIUM":
-				sevIcon = "🟡"
-			case "LOW":
-				sevIcon = "🔵"
-			}
+			sevLabel := sev
 
-			lines = append(lines, fmt.Sprintf("━━━ %s %s (%d findings) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", sevIcon, sev, len(sevFindings)))
+			lines = append(lines, fmt.Sprintf("--- %s (%d findings) %s", sevLabel, len(sevFindings), strings.Repeat("-", 40)))
 			lines = append(lines, "")
 
 			// Sub-group by type within severity
@@ -231,18 +186,18 @@ func WriteReport(allFindings []core.Finding, reportFile string, stats *core.Stat
 	}
 
 	os.WriteFile(reportFile, []byte(strings.Join(lines, "\n")), 0644)
-	core.Logf("  %s✔%s  Report           →  %s%s%s\n", core.GREEN, core.RESET, core.BOLD, reportFile, core.RESET)
-	core.Logf("  %s✔%s  High-confidence findings : %s%d%s\n", core.GREEN, core.RESET, core.BOLD, len(highConf), core.RESET)
+	core.Logf("  %s[OK]%s report      %s%s%s\n", core.GREEN, core.RESET, core.BOLD, reportFile, core.RESET)
+	core.Logf("  %s[OK]%s findings    %s%d%s\n", core.GREEN, core.RESET, core.BOLD, len(highConf), core.RESET)
 
 	// Severity summary in console
 	if sevCounts["CRITICAL"] > 0 {
-		core.Logf("  %s🔴%s  CRITICAL: %s%d%s\n", core.RED, core.RESET, core.RED, sevCounts["CRITICAL"], core.RESET)
+		core.Logf("  %s[!!]%s critical    %d\n", core.RED, core.RESET, sevCounts["CRITICAL"])
 	}
 	if sevCounts["HIGH"] > 0 {
-		core.Logf("  %s🟠%s  HIGH:     %s%d%s\n", core.YELLOW, core.RESET, core.YELLOW, sevCounts["HIGH"], core.RESET)
+		core.Logf("  %s[!]%s  high        %d\n", core.YELLOW, core.RESET, sevCounts["HIGH"])
 	}
 	if sevCounts["MEDIUM"] > 0 {
-		core.Logf("  %s🟡%s  MEDIUM:   %d\n", core.YELLOW, core.RESET, sevCounts["MEDIUM"])
+		core.Logf("  %s[*]%s  medium      %d\n", core.YELLOW, core.RESET, sevCounts["MEDIUM"])
 	}
 
 	// Write JSON report
@@ -272,6 +227,6 @@ func writeJSONReport(findings []core.Finding, reportFile string, stats *core.Sta
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err == nil {
 		os.WriteFile(reportFile, data, 0644)
-		core.Logf("  %s✔%s  JSON Report      →  %s%s%s\n", core.GREEN, core.RESET, core.BOLD, reportFile, core.RESET)
+		core.Logf("  %s[OK]%s json        %s%s%s\n", core.GREEN, core.RESET, core.BOLD, reportFile, core.RESET)
 	}
 }

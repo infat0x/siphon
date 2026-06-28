@@ -104,6 +104,11 @@ func ScanEntropy(dlMap map[string]string) []core.Finding {
 					continue
 				}
 
+				// Skip URLs — they are not secrets
+				if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") || strings.HasPrefix(value, "//") {
+					continue
+				}
+
 				// Skip alphabet/charset strings (Base64 table, hex table, etc.)
 				if isAlphabetString(value) {
 					continue
@@ -280,21 +285,49 @@ func countSubstringOverlap(s, alphabet string) int {
 }
 
 // structuralChars are characters typical in minified JavaScript code, not in secrets.
-const structuralChars = "{}()<>=+-;,"
+const structuralChars = "{}()<>=+-;,:!?."
 
-// isMinifiedCode returns true if structural JavaScript characters make up >15%
-// of the string's length. This catches minified code snippets flagged as secrets.
+// jsCodeKeywords are substrings that indicate the string is JS code, not a secret.
+var jsCodeKeywords = []string{
+	"function", "return ", "return(", "var ", "let ", "const ",
+	"this.", "typeof ", "instanceof ", ".prototype", ".apply(",
+	".call(", ".bind(", "=>{", "=>{\n", "if(", "else{",
+	"for(", "while(", "switch(", "case ", "break;",
+	"new ", "delete ", "throw ", "catch(", "try{",
+	"null)", "undefined)", "true)", "false)",
+	".push(", ".pop(", ".shift(", ".map(", ".filter(",
+	".reduce(", ".forEach(", ".indexOf(", ".replace(",
+	".split(", ".join(", ".slice(", ".concat(",
+	"document.", "window.", "console.", "Math.",
+	"JSON.", "Object.", "Array.",
+	"&&", "||", "!==", "===",
+	"dataType:", "withCredentials", "siblingRole",
+	"pluginConfig", "globalSwatchId",
+}
+
+// isMinifiedCode returns true if the string looks like minified JS code.
+// It checks both structural character density (>12%) and presence of JS keywords.
 func isMinifiedCode(s string) bool {
 	if len(s) < 16 {
 		return false
 	}
+
+	// Check for JS keywords inside the string
+	lower := strings.ToLower(s)
+	for _, kw := range jsCodeKeywords {
+		if strings.Contains(lower, strings.ToLower(kw)) {
+			return true
+		}
+	}
+
+	// Structural character density check (lowered from 15% to 12%)
 	count := 0
 	for _, c := range s {
 		if strings.ContainsRune(structuralChars, c) {
 			count++
 		}
 	}
-	return float64(count)/float64(len(s)) > 0.15
+	return float64(count)/float64(len(s)) > 0.12
 }
 
 // isRepetitive checks if a string consists mostly of a repeating pattern

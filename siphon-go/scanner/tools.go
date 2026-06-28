@@ -204,7 +204,7 @@ func ScanGitleaks(dlDir string, rawDir string, logDir string) []core.Finding {
 	defer cancel()
 
 	reportPath := filepath.Join(rawDir, "gitleaks.json")
-	result := runCmd(ctx, "gitleaks", "detect", "--source", dlDir, "--no-git", "--report-format", "json", "--report-path", reportPath, "--exit-code", "0", "--log-level", "warn", "--redact=false")
+	result := runCmd(ctx, "gitleaks", "detect", "--source", dlDir, "--no-git", "--report-format", "json", "--report-path", reportPath, "--exit-code", "0", "--log-level", "warn")
 
 	// Write segregated tool log
 	core.WriteToolLog(logDir, "gitleaks", result.Stdout, result.Stderr)
@@ -375,7 +375,7 @@ func ScanNuclei(jsUrls []string, rawDir string, logDir string) []core.Finding {
 	// Extended tags for better coverage
 	result := runCmd(ctx, "nuclei", "-l", urlListPath,
 		"-tags", "exposure,token,javascript,config,secret,apikey,credential,leak,misconfiguration",
-		"-silent", "-no-color", "-json", "-o", reportPath,
+		"-silent", "-no-color", "-jsonl", "-o", reportPath,
 		"-rate-limit", "50", "-concurrency", "20", "-timeout", "10",
 		"-no-update-templates")
 
@@ -450,13 +450,25 @@ func ScanJsleak(dlMap map[string]string, rawDir string, logDir string) []core.Fi
 			defer func() { <-sem }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			result := runCmd(ctx, "jsleak", "-f", fpath, "-s")
-			cancel()
+			defer cancel()
+
+			// jsleak reads from stdin, not -f flag
+			var cmd *exec.Cmd
+			if runtime.GOOS == "windows" {
+				cmd = exec.CommandContext(ctx, "cmd", "/c", "type", fpath, "|", "jsleak", "-s")
+			} else {
+				cmd = exec.CommandContext(ctx, "sh", "-c", "cat "+fpath+" | jsleak -s")
+			}
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			_ = cmd.Run()
 
 			// Write segregated tool log
-			core.WriteToolLog(logDir, "jsleak", result.Stdout, result.Stderr)
+			core.WriteToolLog(logDir, "jsleak", stdout.String(), stderr.String())
 
-			out := result.Stdout
+			out := stdout.String()
 
 			var localFindings []core.Finding
 			var localRaw []string
@@ -677,6 +689,12 @@ func ScanSubjs(dlMap map[string]string, rawDir string, logDir string) []core.Fin
 // ScanMantra runs the Mantra tool for JS API key leak detection
 func ScanMantra(dlMap map[string]string, rawDir string, logDir string) []core.Finding {
 	var findings []core.Finding
+
+	// Check if mantra is installed before iterating files
+	if _, err := exec.LookPath("mantra"); err != nil {
+		core.Info("Mantra skipped — not installed")
+		return findings
+	}
 
 	// Empty input check: skip if no real files in dlMap
 	if isDlMapEmpty(dlMap) {
