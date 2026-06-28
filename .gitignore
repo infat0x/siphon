@@ -27,6 +27,10 @@ output/
 *report*/
 *.log
 *.json
+!package.json
+!package-lock.json
+!docs/package.json
+!docs/package-lock.json
 
 # Documentation/Temp
 IMPLEMENTATION.md
