@@ -12,6 +12,7 @@ import (
 	"siphon-go/downloader"
 	"net/url"
 	"siphon-go/scanner"
+	"github.com/joho/godotenv"
 	"strings"
 	"sync"
 	"time"
@@ -121,6 +122,9 @@ func main() {
 	if *insecure {
 		core.PrintWarning("--insecure active — TLS certificate errors will be ignored")
 	}
+
+	// Load .env if it exists
+	_ = godotenv.Load()
 
 	core.GlobalConfig = core.Config{
 		Insecure: *insecure,
@@ -473,4 +477,14 @@ func main() {
 		}
 	}
 	core.PrintFinalStats(len(allFindings), critical, high, medium, time.Since(scanStart), reportPath)
+
+	// Interactive AI Prompt
+	fmt.Printf("\n  [?] Would you like an AI summary of this report? (y/N): ")
+	reader := bufio.NewReader(os.Stdin)
+	ans, _ := reader.ReadString('\n')
+	ans = strings.TrimSpace(strings.ToLower(ans))
+
+	if ans == "y" || ans == "yes" {
+		core.AnalyzeReportWithAI(allFindings)
+	}
 }

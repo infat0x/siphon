@@ -178,6 +178,10 @@ func (d *DummySpinner) Success(msg string) {
 	PrintSuccess(msg)
 }
 
+func (d *DummySpinner) Fail(msg string) {
+	PrintError(msg)
+}
+
 func StartSpinner(text string) *DummySpinner {
 	fmt.Printf("  %s>%s %s\n", cDim, RESET, text)
 	return &DummySpinner{}
