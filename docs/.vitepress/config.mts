@@ -8,9 +8,9 @@ export default defineConfig({
   appearance: 'force-dark',
   themeConfig: {
     logo: '/logo.png',
+    siteTitle: false,
     
     nav: [
-      { text: 'Home', link: '/' },
       { text: 'Documentation', link: '/' },
       { text: 'API Reference', link: '/reference/main' }
     ],
