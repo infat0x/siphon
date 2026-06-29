@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://i.imgur.com/EyOx34K.png" alt="Siphon Logo" width="300">
+  <img src="https://i.imgur.com/Bp9zgWx.png" alt="Siphon Logo" width="300">
   <h1>Support Siphon Development</h1>
 </div>
 
