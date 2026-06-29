@@ -2,7 +2,7 @@
   <img src="https://i.imgur.com/Bp9zgWx.png" alt="Siphon Logo" width="500">
 </p>
 
-<h1 align="center">Siphon — v7 Ultra</h1>
+<h1 align="center">Siphon</h1>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Version-v7%20Ultra-e60000?style=for-the-badge&labelColor=000000" alt="Version">
