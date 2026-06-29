@@ -5,8 +5,12 @@
 <h1 align="center">Siphon — v7 Ultra</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.19%2B-blue" alt="Go Version">
-  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/Version-v7%20Ultra-e60000?style=for-the-badge&labelColor=000000" alt="Version">
+  <img src="https://img.shields.io/badge/Go-1.19%2B-e60000?style=for-the-badge&labelColor=000000&logo=go&logoColor=white" alt="Go Version">
+  <img src="https://img.shields.io/badge/License-MIT-e60000?style=for-the-badge&labelColor=000000" alt="License">
+  <img src="https://img.shields.io/badge/Category-Bug%20Bounty%20%2F%20Recon-e60000?style=for-the-badge&labelColor=000000&logo=hackthebox&logoColor=white" alt="Category">
+  <img src="https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-e60000?style=for-the-badge&labelColor=000000&logo=linux&logoColor=white" alt="OS">
+  <img src="https://img.shields.io/badge/PRs-Welcome-e60000?style=for-the-badge&labelColor=000000&logo=github&logoColor=white" alt="PRs Welcome">
 </p>
 
 <p align="center">
