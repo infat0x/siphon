@@ -125,7 +125,6 @@ OPTIONAL_TOOLS: dict[str, str] = {
     "SecretFinder.py": "git clone https://github.com/m4ll0k/SecretFinder  (manual path detection)",
     "subjs":           "go install github.com/lc/subjs@latest",
     "jsluice":         "go install github.com/BishopFox/jsluice/cmd/jsluice@latest",
-    "jsleak":          "go install github.com/byt3hx/jsleak@latest",
     "nuclei":          "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
     "cariddi":         "go install github.com/edoardottt/cariddi/cmd/cariddi@latest",
     "ffuf":            "go install github.com/ffuf/ffuf/v2@latest",
@@ -432,7 +431,7 @@ def banner() -> None:
   \\\\=======================================================//
 {RESET}{DIM}   v6  •  Siphon  •  curl/wget downloader{RESET}
    {DIM}gau + katana + waybackurls + hakrawler + active scrape + brute{RESET}
-   {DIM}Scanners: regex  gf  trufflehog  gitleaks  SecretFinder  jsluice  jsleak  nuclei  cariddi{RESET}
+   {DIM}Scanners: regex  gf  trufflehog  gitleaks  SecretFinder  jsluice  nuclei  cariddi{RESET}
 """)
 
 
@@ -1731,64 +1730,6 @@ def scan_jsluice(dl_map: dict[str, Path], raw_dir: Path,
     return findings
 
 
-# ─── jsleak ─────────────────────────────────────────────────────────────────
-
-def scan_jsleak(dl_map: dict[str, Path], raw_dir: Path,
-                log: logging.Logger) -> list[Finding]:
-    """
-    jsleak-i downloaded JS faylları üzərində işlət.
-
-    Komanda (hər fayl üçün):
-        jsleak -f <filepath> -s
-
-    Flags:
-        -s   secrets mode (secret pattern-lər axtarır)
-    """
-    if not shutil.which("jsleak"):
-        return []
-
-    findings: list[Finding] = []
-    raw_output_lines: list[str] = []
-
-    for url, filepath in dl_map.items():
-        if not filepath.exists():
-            continue
-        try:
-            r = subprocess.run(
-                ["jsleak", "-f", str(filepath), "-s"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            for line in r.stdout.splitlines():
-                line = line.strip()
-                if not line or len(line) < 10:
-                    continue
-                if FALSE_POSITIVE_RE.search(line):
-                    continue
-                if shannon_entropy(line) < 2.8:
-                    continue
-
-                raw_output_lines.append(f"{url}: {line}")
-                findings.append({
-                    "tool":    "jsleak",
-                    "type":    "secret",
-                    "url":     url,
-                    "file":    str(filepath),
-                    "match":   line[:200],
-                    "line":    "",
-                    "entropy": f"{shannon_entropy(line):.2f}",
-                })
-        except subprocess.TimeoutExpired:
-            log.debug("jsleak timeout: %s", filepath)
-        except Exception as exc:
-            log.debug("jsleak error %s: %s", filepath, exc)
-
-    (raw_dir / "jsleak_findings.txt").write_text("\n".join(raw_output_lines))
-    log.info("jsleak: %d findings", len(findings))
-    return findings
-
-
 # ─── nuclei ─────────────────────────────────────────────────────────────────
 
 def scan_nuclei(js_urls: list[str], raw_dir: Path,
@@ -2001,7 +1942,6 @@ def write_report(
             "  ─ Check secrets/raw/trufflehog.json        for TruffleHog output.",
             "  ─ Check secrets/raw/gitleaks.json          for Gitleaks output.",
             "  ─ Check secrets/raw/jsluice_findings.json  for jsluice output.",
-            "  ─ Check secrets/raw/jsleak_findings.txt    for jsleak output.",
             "  ─ Check secrets/raw/nuclei_findings.json   for Nuclei exposure output.",
             "  ─ Check cariddi_secrets.json               for cariddi findings.",
             "  ─ Check git_dumps/                         for dumped .git repositories.",
@@ -2040,7 +1980,7 @@ def run_secret_scanning(
 ) -> None:
     print(clr(f"\n{'━'*60}", DIM))
     print(clr("  [5/5]  Secret Scanning  (all tools in parallel)", BOLD))
-    print(clr(f"  Scanners: regex  gf  trufflehog  gitleaks  SecretFinder  jsluice  jsleak  nuclei", DIM))
+    print(clr(f"  Scanners: regex  gf  trufflehog  gitleaks  SecretFinder  jsluice  nuclei", DIM))
     print(clr(f"{'━'*60}", DIM))
 
     all_findings: list[Finding] = []
@@ -2061,7 +2001,6 @@ def run_secret_scanning(
             ex.submit(_scan_gitleaks_all):                              "gitleaks",
             ex.submit(scan_secretfinder, dl_map,     dirs["raw"], log): "SecretFinder",
             ex.submit(scan_jsluice,      dl_map,     dirs["raw"], log): "jsluice",
-            ex.submit(scan_jsleak,       dl_map,     dirs["raw"], log): "jsleak",
             ex.submit(scan_nuclei,       js_urls,    dirs["raw"], log): "nuclei",
         }
         for fut in as_completed(futs):

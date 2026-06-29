@@ -65,7 +65,6 @@ declare -A GO_TOOLS=(
     ["subjs"]="github.com/lc/subjs@latest"
     # v7 scanners
     ["jsluice"]="github.com/BishopFox/jsluice/cmd/jsluice@latest"
-    ["jsleak"]="github.com/byt3hx/jsleak@latest"
     ["nuclei"]="github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
     ["cariddi"]="github.com/edoardottt/cariddi/cmd/cariddi@latest"
     ["mantra"]="github.com/MrEmpy/mantra@latest"
@@ -182,7 +181,7 @@ echo -e "  └──────────────────────
 echo ""
 
 ALL_TOOLS=(httpx gau katana trufflehog waybackurls hakrawler
-           subjs jsluice jsleak nuclei cariddi gitleaks mantra)
+           subjs jsluice nuclei cariddi gitleaks mantra)
 
 installed=0
 missing=0

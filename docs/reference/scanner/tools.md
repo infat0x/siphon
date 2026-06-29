@@ -18,7 +18,7 @@ This module contains dedicated wrapper functions for:
 3. **Jsluice** (`ScanJsluice`): Runs BishopFox's `jsluice` to extract URLs and secrets from AST trees.
 4. **Nuclei** (`ScanNuclei`): Runs ProjectDiscovery's `nuclei` against the live JS URLs using the `exposure` and `token` tags.
 5. **Git-Dumper** (`CheckGitExposure`): Checks if `/.git/config` is exposed on the root domain and automatically dumps the repository if vulnerable.
-6. **Cariddi** / **Subjs** / **JSLeak** / **Mantra**: Assorted single-purpose JS recon tools.
+6. **Cariddi** / **Subjs** / **Mantra**: Assorted single-purpose JS recon tools.
 
 ## Execution and Error Handling
 

@@ -23,7 +23,7 @@ import (
 var requiredTools = []string{
 	"katana", "gau", "hakrawler", "waybackurls", "subjs",
 	"nuclei", "trufflehog", "gitleaks", "jsluice", "cariddi",
-	"httpx", "jsleak", "mantra",
+	"httpx", "mantra",
 }
 
 // checkAIAccess sends a test request to the OpenAI API to verify the API key is valid.
@@ -479,7 +479,6 @@ func main() {
 	runScanner("Regex", func() []core.Finding { return scanner.ScanRegex(dlMap) })
 	runScanner("Trufflehog", func() []core.Finding { return scanner.ScanTrufflehog(dirs["dl"], dirs["raw"], logDir) })
 	runScanner("Gitleaks", func() []core.Finding { return scanner.ScanGitleaks(dirs["dl"], dirs["raw"], logDir) })
-	runScanner("Jsleak", func() []core.Finding { return scanner.ScanJsleak(dlMap, dirs["raw"], logDir) })
 	runScanner("Jsluice", func() []core.Finding { return scanner.ScanJsluice(dlMap, dirs["raw"], logDir) })
 	runScanner("Cariddi", func() []core.Finding { return scanner.ScanCariddi(dlMap, dirs["raw"], logDir) })
 	runScanner("Subjs", func() []core.Finding { return scanner.ScanSubjs(dlMap, dirs["raw"], logDir) })

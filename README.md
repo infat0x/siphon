@@ -32,7 +32,7 @@ subs.txt / -domain
     → active <script> parsing
     → JS filter (exclude libraries)
     → concurrent download
-    → secret scanning (regex + mantra + trufflehog + gitleaks + jsluice + jsleak + nuclei + cariddi)
+    → secret scanning (regex + mantra + trufflehog + gitleaks + jsluice + nuclei + cariddi)
 ```
 ## Star History
 
@@ -78,7 +78,6 @@ go install github.com/edoardottt/cariddi/cmd/cariddi@latest
 
 # Secret scanners
 go install github.com/BishopFox/jsluice/cmd/jsluice@latest
-go install github.com/byt3hx/jsleak@latest
 go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 go install github.com/MrEmpy/mantra@latest
 
@@ -165,7 +164,6 @@ output/
 │       ├── trufflehog.json
 │       ├── gitleaks.json
 │       ├── jsluice_findings.json
-│       ├── jsleak_findings.txt
 │       └── nuclei_findings.json
 └── logs/
     └── log.log

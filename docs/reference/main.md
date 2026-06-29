@@ -23,7 +23,7 @@ Before running any scans, `main.go` verifies that all required external tools ar
 var requiredTools = []string{
 	"katana", "gau", "hakrawler", "waybackurls", "subjs",
 	"nuclei", "trufflehog", "gitleaks", "jsluice", "cariddi",
-	"httpx", "jsleak", "mantra",
+	"httpx", "mantra",
 }
 ```
 
