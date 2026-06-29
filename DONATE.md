@@ -24,7 +24,7 @@ The most direct way to support the project is via Cryptocurrency.
 
 If your company uses Siphon internally for AppSec or continuous reconnaissance, consider sponsoring the project to ensure its long-term maintenance and priority bug fixes.
 
-Contact: `your-email@example.com`
+Contact: `infat@proton.me`
 
 ---
 <div align="center">
