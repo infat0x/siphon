@@ -68,8 +68,21 @@ for _, t := range tools {
 
 After the traditional scanning pipeline completes, `main.go` prompts the user to pass the findings to the AI engine for intelligent false-positive reduction.
 
+Alternatively, you can automate this using the `-ai` flag, or analyze previously generated reports using the `-file` flag without re-scanning the target.
+
 ```go
-// Interactive AI Prompt
-core.PrintWarning("WARNING: Analyzing the report with AI will send the found secrets to AI servers!")
-fmt.Printf("  [?] Do you still want to analyze with AI? (y/N): ")
+// Direct AI analysis on an existing report
+if *fileReport != "" {
+    core.AnalyzeReportFileWithAI(*fileReport, aiOutputPath)
+    os.Exit(0)
+}
+
+// Interactive AI Prompt or Auto AI
+if *aiAuto {
+    core.AnalyzeReportWithAI(allFindings, aiOutputPath)
+} else {
+    core.PrintWarning("WARNING: Analyzing the report with AI will send the found secrets to AI servers!")
+    fmt.Printf("  [?] Do you still want to analyze with AI? (y/N): ")
+    // ...
+}
 ```

@@ -124,6 +124,9 @@ siphon -s subs.txt -o output/ -skip-url-collection
 
 # Only extract JS URLs, skip download and scanning
 siphon -s subs.txt -o output/ -skip-download
+
+# Analyze a pre-scanned report directly with AI
+siphon -file output/secrets/final_report.txt -ai
 ```
 
 ## Flags
@@ -141,6 +144,8 @@ siphon -s subs.txt -o output/ -skip-download
 | `-skip-url-collection`| Skip URL harvest |
 | `-skip-download` | Stop after JS extraction |
 | `-path` | Filter JS URLs by specific path (e.g. /admin/) |
+| `-file` | Path to a previously generated report file (TXT or JSON) for AI analysis |
+| `-ai` | Enable AI analysis (non-interactive) |
 
 ## Output Structure
 

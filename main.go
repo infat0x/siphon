@@ -125,6 +125,8 @@ func main() {
 	skipUrlCollection := flag.Bool("skip-url-collection", false, "Skip URL harvest")
 	skipDownload := flag.Bool("skip-download", false, "Stop after JS extraction")
 	pathFilter := flag.String("path", "", "Filter JS URLs by specific path (e.g. /admin/)")
+	fileReport := flag.String("file", "", "Path to a previously generated report file (TXT or JSON) for AI analysis")
+	aiAuto := flag.Bool("ai", false, "Enable AI analysis (non-interactive)")
 	
 	flag.Usage = func() {
 		core.PrintBanner()
@@ -139,12 +141,14 @@ func main() {
 		
 		fmt.Fprintf(os.Stderr, "  %sFlags:%s\n", core.BOLD, core.RESET)
 		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\n  %sAI Analysis Only:%s\n", core.BOLD, core.RESET)
+		fmt.Fprintf(os.Stderr, "    %s -file final_report.txt -ai\n", os.Args[0])
 		fmt.Println()
 	}
 	
 	flag.Parse()
 
-	if *outDir == "" || (*domain == "" && *subs == "" && *jsUrl == "" && *pathFilter == "") {
+	if *fileReport == "" && *outDir == "" || (*domain == "" && *subs == "" && *jsUrl == "" && *pathFilter == "" && *fileReport == "") {
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -163,6 +167,24 @@ func main() {
 
 	if home, err := os.UserHomeDir(); err == nil {
 		_ = godotenv.Load(filepath.Join(home, ".siphon.env")) // 3. Home directory
+	}
+
+	if *fileReport != "" {
+		if _, err := os.Stat(*fileReport); os.IsNotExist(err) {
+			core.PrintError(fmt.Sprintf("Report file not found: %s", *fileReport))
+			os.Exit(1)
+		}
+		
+		aiOutputPath := ""
+		if *outDir != "" {
+			os.MkdirAll(*outDir, 0755)
+			aiOutputPath = filepath.Join(*outDir, "ai_summary.txt")
+		} else {
+			aiOutputPath = "ai_summary.txt"
+		}
+		
+		core.AnalyzeReportFileWithAI(*fileReport, aiOutputPath)
+		os.Exit(0)
 	}
 
 	// Pre-flight: check all required tool dependencies
@@ -526,16 +548,21 @@ func main() {
 	}
 	core.PrintFinalStats(len(allFindings), critical, high, medium, time.Since(scanStart), reportPath)
 
-	// Interactive AI Prompt
-	fmt.Println()
-	core.PrintWarning("WARNING: Analyzing the report with AI will send the found secrets to AI servers!")
-	fmt.Printf("  [?] Do you still want to analyze with AI? (y/N): ")
-	reader := bufio.NewReader(os.Stdin)
-	ans, _ := reader.ReadString('\n')
-	ans = strings.TrimSpace(strings.ToLower(ans))
-
-	if ans == "y" || ans == "yes" {
+	// Interactive AI Prompt or Auto AI
+	if *aiAuto {
 		aiOutputPath := filepath.Join(dirs["secrets"], "ai_summary.txt")
 		core.AnalyzeReportWithAI(allFindings, aiOutputPath)
+	} else {
+		fmt.Println()
+		core.PrintWarning("WARNING: Analyzing the report with AI will send the found secrets to AI servers!")
+		fmt.Printf("  [?] Do you still want to analyze with AI? (y/N): ")
+		reader := bufio.NewReader(os.Stdin)
+		ans, _ := reader.ReadString('\n')
+		ans = strings.TrimSpace(strings.ToLower(ans))
+
+		if ans == "y" || ans == "yes" {
+			aiOutputPath := filepath.Join(dirs["secrets"], "ai_summary.txt")
+			core.AnalyzeReportWithAI(allFindings, aiOutputPath)
+		}
 	}
 }
