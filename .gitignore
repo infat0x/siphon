@@ -36,6 +36,7 @@ test_out*/
 # Documentation/Temp
 IMPLEMENTATION.md
 globalfix.md
+graphify-out/
 
 # VitePress Docs
 docs/node_modules/

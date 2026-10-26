@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -215,18 +216,40 @@ func downloadSourceMap(client *http.Client, mapURL string) (string, error) {
 	return string(body), nil
 }
 
+// SourceMap represents the standard source map v3 format.
+type SourceMap struct {
+	Version        interface{} `json:"version"`
+	Sources        []string    `json:"sources"`
+	SourcesContent []*string   `json:"sourcesContent"`
+}
+
 // extractSourcesFromMap parses a source map JSON and extracts sourcesContent
 func extractSourcesFromMap(mapJSON string) map[string]string {
 	result := make(map[string]string)
 
-	// Simple JSON parsing for sourcesContent array
-	// Looking for "sourcesContent":["...","..."] pattern
+	var sm SourceMap
+	if err := json.Unmarshal([]byte(mapJSON), &sm); err == nil {
+		for i, contentPtr := range sm.SourcesContent {
+			if contentPtr == nil || len(*contentPtr) < 10 {
+				continue
+			}
+			name := fmt.Sprintf("source_%d", i)
+			if i < len(sm.Sources) && sm.Sources[i] != "" {
+				name = sm.Sources[i]
+			}
+			result[name] = *contentPtr
+		}
+		if len(result) > 0 {
+			return result
+		}
+	}
+
+	// Fallback to substring matching if json.Unmarshal fails
 	scIdx := strings.Index(mapJSON, `"sourcesContent"`)
 	if scIdx < 0 {
 		return result
 	}
 
-	// Find sources array for names
 	var sourceNames []string
 	sIdx := strings.Index(mapJSON, `"sources"`)
 	if sIdx >= 0 {
@@ -239,7 +262,6 @@ func extractSourcesFromMap(mapJSON string) map[string]string {
 		if i < len(sourceNames) {
 			name = sourceNames[i]
 		}
-		// Unescape JSON string
 		content = strings.ReplaceAll(content, `\n`, "\n")
 		content = strings.ReplaceAll(content, `\t`, "\t")
 		content = strings.ReplaceAll(content, `\"`, `"`)

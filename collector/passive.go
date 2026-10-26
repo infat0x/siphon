@@ -78,6 +78,9 @@ func RunHakrawler(urls []string) []string {
 	if core.GlobalConfig.Insecure {
 		args = append(args, "-insecure")
 	}
+	for _, h := range core.GlobalConfig.Headers {
+		args = append(args, "-h", h)
+	}
 	return runCmdLinesStdin(ctx, urls, "hakrawler", args...)
 }
 

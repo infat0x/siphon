@@ -54,11 +54,8 @@ func DedupFindings(lst []Finding) []Finding {
 	seen := make(map[string]struct{})
 	var out []Finding
 	for _, f := range lst {
-		matchPart := f.Match
-		if len(matchPart) > 80 {
-			matchPart = matchPart[:80]
-		}
-		key := fmt.Sprintf("%s|%s", f.Type, matchPart)
+		matchClean := strings.TrimSpace(f.Match)
+		key := fmt.Sprintf("%s|%s|%s", f.Type, f.URL, matchClean)
 		if _, ok := seen[key]; !ok {
 			seen[key] = struct{}{}
 			out = append(out, f)

@@ -91,12 +91,10 @@ func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 				if err == nil {
 					defer resp.Body.Close()
 					if resp.StatusCode == http.StatusOK {
-						ct := resp.Header.Get("Content-Type")
-						if strings.Contains(ct, "javascript") || strings.Contains(ct, "ecmascript") || strings.HasSuffix(urlStr, ".js") {
-							mu.Lock()
-							found = append(found, urlStr)
-							mu.Unlock()
-						} else if strings.Contains(ct, "text/html") {
+						ct := strings.ToLower(resp.Header.Get("Content-Type"))
+						if strings.Contains(ct, "text/html") {
+							// In SPAs, missing routes often return the main index.html with 200 OK.
+							// Parse legitimate script tags from it, but do NOT add this HTML page as a JS file.
 							bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
 							if err == nil && len(bodyBytes) > 0 {
 								htmlStr := string(bodyBytes)
@@ -107,6 +105,10 @@ func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 									mu.Unlock()
 								}
 							}
+						} else if strings.Contains(ct, "javascript") || strings.Contains(ct, "ecmascript") || strings.Contains(ct, "application/octet-stream") || strings.HasSuffix(urlStr, ".js") {
+							mu.Lock()
+							found = append(found, urlStr)
+							mu.Unlock()
 						}
 					}
 				}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -50,11 +51,23 @@ func AnalyzeReportWithAI(findings []Finding, outputFile string) {
 	Logf("\n  %s[AI]%s Connecting to AI for report analysis...\n", MAGENTA, RESET)
 	sp := StartSpinner("Analyzing report with AI")
 
-	// Limit findings if there are too many, to avoid exceeding context limits.
-	maxFindings := 50
-	analyzeSlice := findings
-	if len(findings) > maxFindings {
-		analyzeSlice = findings[:maxFindings]
+	// Deduplicate and prioritize findings: CRITICAL and HIGH first, sorted by confidence
+	cleanedFindings := DedupFindings(findings)
+	severityOrder := map[string]int{"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4, "": 5}
+	sort.Slice(cleanedFindings, func(i, j int) bool {
+		si := severityOrder[cleanedFindings[i].Severity]
+		sj := severityOrder[cleanedFindings[j].Severity]
+		if si != sj {
+			return si < sj
+		}
+		return cleanedFindings[i].Confidence > cleanedFindings[j].Confidence
+	})
+
+	// Send top prioritized findings to AI
+	maxFindings := 120
+	analyzeSlice := cleanedFindings
+	if len(cleanedFindings) > maxFindings {
+		analyzeSlice = cleanedFindings[:maxFindings]
 	}
 
 	var findingsText strings.Builder
@@ -62,8 +75,8 @@ func AnalyzeReportWithAI(findings []Finding, outputFile string) {
 		findingsText.WriteString(fmt.Sprintf("[%d] Tool: %s | Type: %s | URL: %s\nMatch: %s\nSeverity: %s | Confidence: %d\n---\n",
 			i+1, f.Tool, f.Type, f.URL, f.Match, f.Severity, f.Confidence))
 	}
-	if len(findings) > maxFindings {
-		findingsText.WriteString(fmt.Sprintf("\n... and %d more findings omitted to fit context.", len(findings)-maxFindings))
+	if len(cleanedFindings) > maxFindings {
+		findingsText.WriteString(fmt.Sprintf("\n... and %d lower-priority findings omitted to optimize context.", len(cleanedFindings)-maxFindings))
 	}
 
 	sysPrompt := `You are an elite offensive security engineer and bug bounty hunter reviewing the output of an automated JavaScript secret scanner (Siphon). 

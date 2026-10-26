@@ -2,7 +2,9 @@ package downloader
 
 import "regexp"
 
-var JsExcludeRe = regexp.MustCompile(`(?i)jquery|react(?:\.js|-dom|-router)?|angular(?:js)?|vue\.js|ember|backbone|bootstrap|lodash|underscore|moment\.js|axios|webpack|babel|polyfill|modernizr|d3\.js|three\.js|chart\.js|socket\.io|amplify|google-analytics|gtag|gtm|fbevents|recaptcha|stripe|twilio|intercom|sentry|datadog|newrelic|hotjar|gsap|swiper|slick|fontawesome|material-ui|tailwind|semantic\.js|foundation|\.min\.js|/vendor/|/bundle|/chunk|/node_modules/|/bower_components/|\.[a-f0-9]{8,}\.js|-[a-f0-9]{8,}\.js|runtime\.|/common\.|manifest\.|/framework\.|/lib/|/libs/`)
+// JsExcludeRe matches known third-party libraries, analytics, and vendor packages.
+// It explicitly preserves application chunks, hashed bundles, and framework routes.
+var JsExcludeRe = regexp.MustCompile(`(?i)(?:^|/|\.)(?:jquery(?:\.min)?\.js|bootstrap(?:\.min)?\.js|lodash(?:\.min)?\.js|underscore(?:\.min)?\.js|moment(?:\.min)?\.js|d3(?:\.min)?\.js|three(?:\.min)?\.js|chart(?:\.min)?\.js|socket\.io(?:\.min)?\.js|google-analytics\.com|googletagmanager\.com|gtag/js|gtm\.js|fbevents\.js|recaptcha|sentry(?:\.min)?\.js|datadoghq|newrelic\.com|hotjar\.com|gsap(?:\.min)?\.js|swiper(?:\.min)?\.js|slick(?:\.min)?\.js|fontawesome|material-ui|semantic(?:\.min)?\.js|foundation(?:\.min)?\.js|polyfill(?:\.min)?\.js|modernizr)|(?:/node_modules/|/bower_components/|/vendor/|/vendors/)`)
 
 func FilterJS(urls []string) []string {
 	var filtered []string

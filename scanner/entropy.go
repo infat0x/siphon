@@ -29,6 +29,9 @@ var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[
 // semVerRe matches semantic version strings
 var semVerRe = regexp.MustCompile(`^\d+\.\d+\.\d+`)
 
+// jwtTokenRe matches valid JSON Web Tokens (header.payload.signature)
+var jwtTokenRe = regexp.MustCompile(`^eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$`)
+
 // dateTimeRe matches date/time strings
 var dateTimeRe = regexp.MustCompile(`^\d{4}[-/]\d{2}[-/]\d{2}`)
 
@@ -71,6 +74,22 @@ func ScanEntropy(dlMap map[string]string) []core.Finding {
 
 				// Skip short or too long strings
 				if len(value) < 16 || len(value) > 200 {
+					continue
+				}
+
+				// Cryptographic secrets, API tokens, and hashes never contain whitespace.
+				// This instantly eliminates prose, error messages, and Tailwind CSS utility class lists.
+				if strings.ContainsAny(value, " \t\r\n") {
+					continue
+				}
+
+				// Skip CSS style declarations, selectors, and SVG paths
+				if strings.Contains(value, "!important") || strings.Contains(value, ";") ||
+					(strings.HasPrefix(value, "M") && strings.Contains(value, "h") && strings.Contains(value, "v")) ||
+					strings.Contains(value, "var(--") || strings.Contains(value, "calc(") ||
+					strings.Contains(value, "rgba(") || strings.Contains(value, "rgb(") ||
+					strings.Contains(value, "data-") || strings.Contains(value, "aria-") ||
+					strings.Contains(value, "[&_") || strings.Contains(value, "[a&]") {
 					continue
 				}
 
@@ -142,30 +161,39 @@ func ScanEntropy(dlMap map[string]string) []core.Finding {
 
 				confidence := 40 // Base confidence for high-entropy
 				severity := "LOW"
+				findingType := "High-Entropy String"
 
-				// Boost confidence if sensitive keywords are nearby
-				if sensitiveContextRe.MatchString(contextStr) {
-					confidence += 30
-					severity = "MEDIUM"
-				}
-
-				// Higher entropy = higher confidence
-				if entropy > 4.5 {
-					confidence += 10
-					severity = "MEDIUM"
-				}
-				if entropy > 5.0 {
-					confidence += 10
+				// Check for JSON Web Token (JWT)
+				if jwtTokenRe.MatchString(value) {
+					findingType = "JSON Web Token (JWT)"
+					confidence = 90
 					severity = "HIGH"
-				}
-				if entropy > 5.5 {
-					confidence += 10
-				}
+				} else if hasKnownSecretPrefix(value) {
+					findingType = "High-Entropy Secret Token"
+					confidence = 95
+					severity = "CRITICAL"
+				} else {
+					// Boost confidence if sensitive keywords are nearby
+					if sensitiveContextRe.MatchString(contextStr) {
+						confidence += 35
+						severity = "HIGH"
+						findingType = "High-Entropy Secret Token"
+					}
 
-				// Known prefix patterns get extra boost
-				if hasKnownSecretPrefix(value) {
-					confidence += 20
-					severity = "HIGH"
+					// Higher entropy = higher confidence
+					if entropy > 4.5 {
+						confidence += 10
+						if severity != "HIGH" {
+							severity = "MEDIUM"
+						}
+					}
+					if entropy > 5.0 {
+						confidence += 10
+						severity = "HIGH"
+					}
+					if entropy > 5.5 {
+						confidence += 10
+					}
 				}
 
 				if confidence > 100 {
@@ -180,7 +208,7 @@ func ScanEntropy(dlMap map[string]string) []core.Finding {
 
 				localFindings = append(localFindings, core.Finding{
 					Tool:       "entropy",
-					Type:       "High-Entropy String",
+					Type:       findingType,
 					URL:        urlStr,
 					File:       filePath,
 					Match:      value,
