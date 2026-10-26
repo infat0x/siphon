@@ -169,6 +169,188 @@ func ValidateNPMToken(token string) (bool, string) {
 	return false, ""
 }
 
+// ValidateOpenAIKey tests whether an OpenAI API Key is valid and active.
+func ValidateOpenAIKey(key string) (bool, string) {
+	client := core.GetHTTPClient(8 * time.Second)
+	req, err := http.NewRequest("GET", "https://api.openai.com/v1/models", nil)
+	if err != nil {
+		return false, ""
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return true, "OpenAI API Key active (models list accessible, HTTP 200)"
+	}
+	return false, ""
+}
+
+// ValidateDiscordBotToken tests whether a Discord Bot Token is active.
+func ValidateDiscordBotToken(token string) (bool, string) {
+	client := core.GetHTTPClient(8 * time.Second)
+	req, err := http.NewRequest("GET", "https://discord.com/api/v10/users/@me", nil)
+	if err != nil {
+		return false, ""
+	}
+	req.Header.Set("Authorization", "Bot "+token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		var data map[string]interface{}
+		botName := "active"
+		if json.Unmarshal(body, &data) == nil {
+			if u, ok := data["username"].(string); ok {
+				botName = u
+			}
+		}
+		return true, fmt.Sprintf("Discord Bot active: %s (HTTP 200)", botName)
+	}
+	return false, ""
+}
+
+// ValidateMailgunKey tests whether a Mailgun API Key is valid.
+func ValidateMailgunKey(key string) (bool, string) {
+	client := core.GetHTTPClient(8 * time.Second)
+	req, err := http.NewRequest("GET", "https://api.mailgun.net/v3/domains", nil)
+	if err != nil {
+		return false, ""
+	}
+	basicAuth := base64.StdEncoding.EncodeToString([]byte("api:" + key))
+	req.Header.Set("Authorization", "Basic "+basicAuth)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return true, "Mailgun API Key active (domains accessible, HTTP 200)"
+	}
+	return false, ""
+}
+
+// ValidateMapboxToken tests whether a Mapbox access token is active.
+func ValidateMapboxToken(token string) (bool, string) {
+	client := core.GetHTTPClient(8 * time.Second)
+	reqURL := "https://api.mapbox.com/geocoding/v5/mapbox.places/test.json?access_token=" + url.QueryEscape(token)
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return false, ""
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return true, "Mapbox token active (geocoding API HTTP 200)"
+	}
+	return false, ""
+}
+
+// ValidateSupabaseKey checks if a token is a Supabase JWT and probes its project REST endpoint.
+func ValidateSupabaseKey(token string) (bool, string) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return false, ""
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		payloadBytes, err = base64.StdEncoding.DecodeString(parts[1])
+		if err != nil {
+			return false, ""
+		}
+	}
+
+	var claims map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		return false, ""
+	}
+
+	iss, _ := claims["iss"].(string)
+	if !strings.Contains(iss, "supabase") {
+		return false, ""
+	}
+
+	role, _ := claims["role"].(string)
+	ref, _ := claims["ref"].(string)
+
+	if ref != "" {
+		client := core.GetHTTPClient(8 * time.Second)
+		reqURL := fmt.Sprintf("https://%s.supabase.co/rest/v1/", ref)
+		req, err := http.NewRequest("GET", reqURL, nil)
+		if err == nil {
+			req.Header.Set("apikey", token)
+			req.Header.Set("Authorization", "Bearer "+token)
+			resp, err := client.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					return true, fmt.Sprintf("Supabase project '%s' active (role: %s, REST API HTTP 200)", ref, role)
+				}
+			}
+		}
+	}
+
+	if role != "" {
+		return true, fmt.Sprintf("Supabase token verified via JWT claims (role: %s, project ref: %s)", role, ref)
+	}
+
+	return false, ""
+}
+
+// ValidateFirebaseDB tests whether an open Firebase Realtime Database is accessible.
+func ValidateFirebaseDB(urlStr string) (bool, string) {
+	if !strings.Contains(urlStr, ".firebaseio.com") {
+		return false, ""
+	}
+	u := strings.TrimSpace(urlStr)
+	if !strings.HasPrefix(u, "http") {
+		u = "https://" + u
+	}
+	if !strings.HasSuffix(u, "/.json?shallow=true") {
+		if idx := strings.Index(u, ".firebaseio.com"); idx != -1 {
+			u = u[:idx+len(".firebaseio.com")] + "/.json?shallow=true"
+		}
+	}
+
+	client := core.GetHTTPClient(8 * time.Second)
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return false, ""
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		bodyStr := string(body)
+		if !strings.Contains(bodyStr, "Permission denied") && bodyStr != "null" {
+			return true, fmt.Sprintf("Firebase Realtime DB open for unauthenticated read (HTTP 200): %s", u)
+		}
+	}
+	return false, ""
+}
+
 // ValidateFinding attempts to actively verify a candidate secret finding.
 func ValidateFinding(f *core.Finding) {
 	match := strings.TrimSpace(f.Match)
@@ -192,6 +374,18 @@ func ValidateFinding(f *core.Finding) {
 		valid, info = ValidateSendGridKey(match)
 	case strings.HasPrefix(match, "npm_") && len(match) == 40:
 		valid, info = ValidateNPMToken(match)
+	case strings.HasPrefix(match, "sk-") && len(match) > 30:
+		valid, info = ValidateOpenAIKey(match)
+	case strings.HasPrefix(match, "key-") && len(match) == 36:
+		valid, info = ValidateMailgunKey(match)
+	case (strings.HasPrefix(match, "pk.") || strings.HasPrefix(match, "sk.")) && len(match) > 30:
+		valid, info = ValidateMapboxToken(match)
+	case strings.HasPrefix(match, "eyJ") && (strings.Contains(f.Context, "supabase") || strings.Contains(f.Match, "supabase")):
+		valid, info = ValidateSupabaseKey(match)
+	case strings.Contains(match, ".firebaseio.com"):
+		valid, info = ValidateFirebaseDB(match)
+	case len(match) > 50 && strings.Count(match, ".") == 2 && strings.Contains(f.Type, "Discord"):
+		valid, info = ValidateDiscordBotToken(match)
 	}
 
 	if valid {
@@ -218,12 +412,16 @@ func ValidateFindings(findings []core.Finding) []core.Finding {
 		m := strings.TrimSpace(findings[i].Match)
 		m = strings.Trim(m, "\"'` ")
 
-		// Only check items with supported prefixes
+		// Only check items with supported prefixes/patterns
 		if strings.HasPrefix(m, "ghp_") || strings.HasPrefix(m, "github_pat_") ||
 			strings.HasPrefix(m, "xoxb-") || strings.HasPrefix(m, "xoxp-") ||
 			strings.HasPrefix(m, "sk_live_") || strings.HasPrefix(m, "rk_live_") ||
 			strings.HasPrefix(m, "AIza") || strings.HasPrefix(m, "SG.") ||
-			strings.HasPrefix(m, "npm_") {
+			strings.HasPrefix(m, "npm_") || strings.HasPrefix(m, "sk-") ||
+			strings.HasPrefix(m, "key-") || strings.HasPrefix(m, "pk.") ||
+			strings.HasPrefix(m, "sk.") || strings.Contains(m, ".firebaseio.com") ||
+			(strings.HasPrefix(m, "eyJ") && strings.Contains(findings[i].Context, "supabase")) ||
+			(len(m) > 50 && strings.Count(m, ".") == 2 && strings.Contains(findings[i].Type, "Discord")) {
 
 			wg.Add(1)
 			go func(idx int) {

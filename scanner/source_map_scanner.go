@@ -72,8 +72,13 @@ func ScanSourceMaps(dlMap map[string]string, rawDir string) []core.Finding {
 				mapFile := filepath.Join(mapDir, safeName)
 				os.WriteFile(mapFile, []byte(mapContent), 0644)
 
-				// Extract original sources from source map
+				// Extract original sources from source map and unpack to disk
 				sources := extractSourcesFromMap(mapContent)
+				unpackedSourcesDir := filepath.Join(rawDir, "unpacked_sources")
+				unpackedFiles := UnpackSourcesToDisk(unpackedSourcesDir, mapURL, sources)
+				if len(unpackedFiles) > 0 {
+					core.Logf("  %s[MAP UNPACK]%s Unpacked %d source file(s) from %s\n", core.GREEN, core.RESET, len(unpackedFiles), mapURL)
+				}
 
 				// Scan each extracted source for secrets
 				for sourceName, sourceContent := range sources {
@@ -128,6 +133,11 @@ func ScanSourceMaps(dlMap map[string]string, rawDir string) []core.Finding {
 				os.WriteFile(mapFile, []byte(mapContent), 0644)
 
 				sources := extractSourcesFromMap(mapContent)
+				unpackedSourcesDir := filepath.Join(rawDir, "unpacked_sources")
+				unpackedFiles := UnpackSourcesToDisk(unpackedSourcesDir, mapURL, sources)
+				if len(unpackedFiles) > 0 {
+					core.Logf("  %s[MAP UNPACK]%s Unpacked %d source file(s) from %s\n", core.GREEN, core.RESET, len(unpackedFiles), mapURL)
+				}
 				for sourceName, sourceContent := range sources {
 					if len(sourceContent) < 20 {
 						continue
@@ -402,4 +412,50 @@ func scanContentForSecrets(content, urlStr, sourceName string) []core.Finding {
 	}
 
 	return findings
+}
+
+// UnpackSourcesToDisk writes extracted sources from a source map to disk under unpackedDir.
+// It reconstructs the project file tree (e.g. src/auth/login.tsx, .env.local).
+func UnpackSourcesToDisk(unpackedDir, mapURL string, sources map[string]string) []string {
+	var written []string
+	if len(sources) == 0 {
+		return written
+	}
+
+	mapBase := filepath.Base(mapURL)
+	mapBase = strings.TrimSuffix(mapBase, ".map")
+	safeSubdir := regexp.MustCompile(`[^\w\-]`).ReplaceAllString(mapBase, "_")
+
+	for sourceName, sourceContent := range sources {
+		if len(sourceContent) < 10 {
+			continue
+		}
+
+		cleanName := sourceName
+		cleanName = strings.TrimPrefix(cleanName, "webpack:///")
+		cleanName = strings.TrimPrefix(cleanName, "webpack://")
+		cleanName = strings.TrimPrefix(cleanName, "file:///")
+		cleanName = strings.TrimPrefix(cleanName, "./")
+		cleanName = strings.ReplaceAll(cleanName, "../", "")
+		cleanName = strings.ReplaceAll(cleanName, "..\\", "")
+		cleanName = strings.TrimLeft(cleanName, "/\\")
+
+		if qIdx := strings.Index(cleanName, "?"); qIdx != -1 {
+			cleanName = cleanName[:qIdx]
+		}
+
+		if cleanName == "" {
+			cleanName = fmt.Sprintf("source_%d.js", len(written))
+		}
+
+		targetPath := filepath.Join(unpackedDir, safeSubdir, filepath.Clean(cleanName))
+
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err == nil {
+			if err := os.WriteFile(targetPath, []byte(sourceContent), 0644); err == nil {
+				written = append(written, targetPath)
+			}
+		}
+	}
+
+	return written
 }

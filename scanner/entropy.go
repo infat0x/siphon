@@ -83,13 +83,13 @@ func ScanEntropy(dlMap map[string]string) []core.Finding {
 					continue
 				}
 
-				// Skip CSS style declarations, selectors, and SVG paths
-				if strings.Contains(value, "!important") || strings.Contains(value, ";") ||
-					(strings.HasPrefix(value, "M") && strings.Contains(value, "h") && strings.Contains(value, "v")) ||
-					strings.Contains(value, "var(--") || strings.Contains(value, "calc(") ||
-					strings.Contains(value, "rgba(") || strings.Contains(value, "rgb(") ||
-					strings.Contains(value, "data-") || strings.Contains(value, "aria-") ||
-					strings.Contains(value, "[&_") || strings.Contains(value, "[a&]") {
+				// Skip CSS style declarations, selectors, colors, and SVG paths
+				if isCSSOrStyleValue(value) || IsSVGPath(value) {
+					continue
+				}
+
+				// Skip code identifiers composed of standard dictionary/programming words
+				if IsCodeIdentifierOrDictionaryWords(value) {
 					continue
 				}
 
@@ -98,9 +98,24 @@ func ScanEntropy(dlMap map[string]string) []core.Finding {
 					continue
 				}
 
-				// Skip pure hex if it looks like a content hash
+				// Skip pure hex if it looks like a content hash or build artifact
 				if hexLikeRe.MatchString(value) && (len(value) == 32 || len(value) == 40 || len(value) == 64) {
-					continue
+					// Check surrounding context for build/asset/integrity keywords
+					ctxStartCheck := valStart - 60
+					if ctxStartCheck < 0 {
+						ctxStartCheck = 0
+					}
+					ctxEndCheck := valEnd + 60
+					if ctxEndCheck > len(content) {
+						ctxEndCheck = len(content)
+					}
+					surrounding := strings.ToLower(content[ctxStartCheck:ctxEndCheck])
+					if strings.Contains(surrounding, "chunk") || strings.Contains(surrounding, "buildid") ||
+						strings.Contains(surrounding, "integrity") || strings.Contains(surrounding, "webpack") ||
+						strings.Contains(surrounding, "sourcemap") || strings.Contains(surrounding, "asset") ||
+						strings.Contains(surrounding, "cache") {
+						continue
+					}
 				}
 
 				// Skip UUIDs — often just identifiers
@@ -378,4 +393,166 @@ func isRepetitive(s string) bool {
 	}
 	
 	return false
+}
+
+// IsSVGPath detects SVG vector path definitions (e.g. M10 20L30..., M12,2C6.48...)
+func IsSVGPath(s string) bool {
+	if len(s) < 10 {
+		return false
+	}
+	if s[0] != 'M' && s[0] != 'm' {
+		return false
+	}
+
+	secondChar := s[1]
+	if (secondChar >= '0' && secondChar <= '9') || secondChar == '-' || secondChar == '.' || secondChar == ' ' || secondChar == ',' {
+		svgCharCount := 0
+		for _, c := range s {
+			if (c >= '0' && c <= '9') || c == ',' || c == '.' || c == '-' || c == ' ' ||
+				strings.ContainsRune("MmLlHhVvCcSsQqTtAaZz", c) {
+				svgCharCount++
+			}
+		}
+		if float64(svgCharCount)/float64(len(s)) > 0.88 {
+			return true
+		}
+	}
+	return false
+}
+
+// IsHexColor returns true if s is a CSS hex color code (#fff, #ffffff, #1a2b3cff)
+func IsHexColor(s string) bool {
+	if !strings.HasPrefix(s, "#") {
+		return false
+	}
+	hexPart := s[1:]
+	if len(hexPart) != 3 && len(hexPart) != 4 && len(hexPart) != 6 && len(hexPart) != 8 {
+		return false
+	}
+	for _, c := range hexPart {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// isCSSOrStyleValue checks if a string is a CSS declaration, function, or style parameter
+func isCSSOrStyleValue(s string) bool {
+	if strings.Contains(s, "!important") || strings.Contains(s, ";") ||
+		strings.Contains(s, "var(--") || strings.Contains(s, "calc(") ||
+		strings.Contains(s, "rgba(") || strings.Contains(s, "rgb(") ||
+		strings.Contains(s, "hsl(") || strings.Contains(s, "hsla(") ||
+		strings.Contains(s, "cubic-bezier(") || strings.Contains(s, "translate(") ||
+		strings.Contains(s, "matrix(") || strings.Contains(s, "scale(") ||
+		strings.Contains(s, "data-") || strings.Contains(s, "aria-") ||
+		strings.Contains(s, "[&_") || strings.Contains(s, "[a&]") ||
+		strings.Contains(s, "pointer-events-") || strings.Contains(s, "whitespace-") ||
+		strings.Contains(s, "overflow-") {
+		return true
+	}
+	if IsHexColor(s) {
+		return true
+	}
+	return false
+}
+
+// splitCamelCaseWords splits a camelCase, PascalCase, or snake_case string into component words.
+func splitCamelCaseWords(s string) []string {
+	var words []string
+	var current strings.Builder
+
+	runes := []rune(s)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+
+		if r == '_' || r == '-' {
+			if current.Len() > 0 {
+				words = append(words, current.String())
+				current.Reset()
+			}
+			continue
+		}
+
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			prev := runes[i-1]
+			// Boundary: lowercase followed by uppercase (e.g. "fooBar" -> "foo", "Bar")
+			if prev >= 'a' && prev <= 'z' {
+				if current.Len() > 0 {
+					words = append(words, current.String())
+					current.Reset()
+				}
+			} else if i+1 < len(runes) && runes[i+1] >= 'a' && runes[i+1] <= 'z' && prev >= 'A' && prev <= 'Z' {
+				// Boundary: uppercase sequence followed by lowercase (e.g. "XMLHttp" -> "XML", "Http")
+				if current.Len() > 0 {
+					words = append(words, current.String())
+					current.Reset()
+				}
+			}
+		}
+
+		current.WriteRune(r)
+	}
+
+	if current.Len() > 0 {
+		words = append(words, current.String())
+	}
+
+	return words
+}
+
+var commonWordDict = map[string]struct{}{
+	"get": {}, "set": {}, "is": {}, "has": {}, "to": {}, "from": {}, "in": {}, "on": {}, "by": {}, "with": {}, "for": {}, "at": {}, "of": {}, "as": {}, "or": {}, "and": {}, "not": {},
+	"component": {}, "components": {}, "element": {}, "elements": {}, "container": {}, "wrapper": {}, "header": {}, "footer": {}, "content": {}, "body": {}, "view": {}, "views": {},
+	"button": {}, "buttons": {}, "input": {}, "inputs": {}, "form": {}, "forms": {}, "select": {}, "option": {}, "options": {}, "checkbox": {}, "radio": {}, "table": {}, "cell": {}, "row": {}, "column": {}, "columns": {},
+	"dialog": {}, "modal": {}, "drawer": {}, "popup": {}, "tooltip": {}, "menu": {}, "item": {}, "items": {}, "list": {}, "screen": {}, "page": {}, "pages": {},
+	"auth": {}, "authentication": {}, "login": {}, "logout": {}, "user": {}, "users": {}, "account": {}, "profile": {}, "permission": {}, "permissions": {}, "role": {}, "roles": {},
+	"action": {}, "actions": {}, "state": {}, "event": {}, "events": {}, "dispatch": {}, "reducer": {}, "store": {}, "context": {}, "hook": {}, "effect": {}, "ref": {},
+	"handler": {}, "handlers": {}, "handle": {}, "handles": {}, "handling": {}, "listener": {}, "listeners": {}, "callback": {}, "callbacks": {}, "promise": {}, "resolve": {}, "reject": {}, "async": {}, "await": {}, "fetch": {}, "check": {}, "checks": {}, "checking": {}, "run": {}, "start": {}, "stop": {}, "init": {}, "initialize": {}, "process": {}, "parse": {},
+	"request": {}, "requests": {}, "response": {}, "responses": {}, "client": {}, "server": {}, "api": {}, "service": {}, "services": {}, "provider": {}, "providers": {}, "factory": {}, "adapter": {},
+	"controller": {}, "router": {}, "route": {}, "routes": {}, "navigation": {}, "history": {}, "location": {}, "query": {}, "param": {}, "params": {},
+	"data": {}, "value": {}, "values": {}, "key": {}, "keys": {}, "name": {}, "names": {}, "type": {}, "types": {}, "title": {}, "label": {}, "labels": {}, "description": {}, "text": {}, "index": {},
+	"default": {}, "initial": {}, "active": {}, "disabled": {}, "enabled": {}, "visible": {}, "hidden": {}, "selected": {}, "checked": {},
+	"current": {}, "previous": {}, "next": {}, "first": {}, "last": {}, "open": {}, "close": {}, "success": {}, "error": {}, "errors": {}, "failed": {}, "failure": {},
+	"warning": {}, "info": {}, "loading": {}, "pending": {}, "complete": {}, "completed": {}, "finished": {}, "cancel": {}, "submit": {},
+	"update": {}, "create": {}, "delete": {}, "remove": {}, "add": {}, "edit": {}, "save": {}, "load": {}, "clear": {}, "reset": {},
+	"config": {}, "configuration": {}, "setting": {}, "settings": {}, "theme": {}, "style": {}, "styles": {}, "class": {}, "classes": {},
+	"width": {}, "height": {}, "size": {}, "color": {}, "background": {}, "border": {}, "margin": {}, "padding": {}, "layout": {},
+	"detail": {}, "details": {}, "message": {}, "messages": {}, "status": {}, "notification": {}, "notifications": {}, "alert": {}, "badge": {}, "icon": {}, "icons": {}, "image": {}, "images": {},
+	"avatar": {}, "card": {}, "tab": {}, "tabs": {}, "accordion": {}, "pagination": {}, "filter": {}, "filters": {}, "sort": {}, "search": {},
+	"render": {}, "mount": {}, "unmount": {}, "change": {}, "click": {}, "press": {}, "hover": {}, "focus": {}, "blur": {},
+	"valid": {}, "validate": {}, "validator": {}, "validation": {}, "invalid": {}, "required": {}, "schema": {},
+	"props": {}, "children": {}, "parent": {}, "sibling": {}, "node": {}, "tree": {}, "branch": {},
+	"custom": {}, "global": {}, "local": {}, "internal": {}, "external": {}, "public": {}, "private": {}, "protected": {},
+	"main": {}, "base": {}, "root": {}, "core": {}, "util": {}, "utils": {}, "helper": {}, "helpers": {}, "common": {}, "shared": {},
+	"string": {}, "number": {}, "boolean": {}, "array": {}, "object": {}, "function": {}, "symbol": {}, "matrix": {},
+	"time": {}, "date": {}, "timer": {}, "interval": {}, "timeout": {}, "duration": {}, "delay": {}, "timestamp": {},
+	"group": {}, "category": {}, "section": {}, "panel": {}, "block": {}, "box": {}, "grid": {}, "flex": {}, "stack": {},
+}
+
+// IsCodeIdentifierOrDictionaryWords returns true if s is a camelCase / snake_case
+// identifier composed entirely of standard programming and English dictionary terms.
+func IsCodeIdentifierOrDictionaryWords(s string) bool {
+	// Only analyze alphanumeric identifiers (no special chars like -, ., /, +, =)
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return false
+		}
+	}
+
+	words := splitCamelCaseWords(s)
+	if len(words) < 3 {
+		return false
+	}
+
+	// Check if ALL words exist in our dictionary
+	matchCount := 0
+	for _, w := range words {
+		lowerW := strings.ToLower(w)
+		if _, ok := commonWordDict[lowerW]; ok {
+			matchCount++
+		}
+	}
+
+	return matchCount == len(words)
 }

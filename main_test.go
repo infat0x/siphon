@@ -149,3 +149,60 @@ func TestProxyTransportConfiguration(t *testing.T) {
 		t.Fatalf("GetHTTPTransport did not set proxy function when GlobalConfig.Proxy is configured")
 	}
 }
+
+func TestSVGAndColorFilters(t *testing.T) {
+	svg := "M12,2C6.48,2,2,6.48,2,12s4.48,10,10,10,10-4.48,10-10S17.52,2,12,2zm-2,15l-5-5,1.41-1.41L10,14.17l7.59-7.59L19,8l-9,9z"
+	color := "#1a2b3c"
+
+	if !scanner.IsSVGPath(svg) {
+		t.Errorf("IsSVGPath failed to detect valid SVG path coordinate string")
+	}
+	if !scanner.IsHexColor(color) {
+		t.Errorf("IsHexColor failed to detect valid hex color %s", color)
+	}
+	if !scanner.IsHexColor("#ffffff") || !scanner.IsHexColor("#fff") {
+		t.Errorf("IsHexColor failed to detect standard hex color values")
+	}
+	if scanner.IsHexColor("AIzaSyD12345") {
+		t.Errorf("IsHexColor incorrectly flagged non-color API key as hex color")
+	}
+
+	if !scanner.IsMagicByteEncoded("iVBORw0KGgoAAAANSUhEUgAA") {
+		t.Errorf("IsMagicByteEncoded failed to detect PNG base64 header")
+	}
+	if !scanner.IsMagicByteEncoded("d09GMgABAAAAAA") {
+		t.Errorf("IsMagicByteEncoded failed to detect WOFF font header")
+	}
+	if !scanner.IsMagicByteEncoded("UklGRiQAAABXRUJQVlA4") {
+		t.Errorf("IsMagicByteEncoded failed to detect WebP header")
+	}
+}
+
+func TestDictionaryIdentifierFilter(t *testing.T) {
+	identifier := "getComponentDetailsFromConfiguration"
+	identifier2 := "handleAuthenticationStateChange"
+	realSecret := "sk_live_1234567890abcdef"
+
+	if !scanner.IsCodeIdentifierOrDictionaryWords(identifier) {
+		t.Errorf("IsCodeIdentifierOrDictionaryWords failed to detect code identifier: %s", identifier)
+	}
+	if !scanner.IsCodeIdentifierOrDictionaryWords(identifier2) {
+		t.Errorf("IsCodeIdentifierOrDictionaryWords failed to detect code identifier: %s", identifier2)
+	}
+	if scanner.IsCodeIdentifierOrDictionaryWords(realSecret) {
+		t.Errorf("IsCodeIdentifierOrDictionaryWords incorrectly flagged real secret as dictionary words: %s", realSecret)
+	}
+}
+
+func TestUnpackSourcesToDisk(t *testing.T) {
+	tmpDir := t.TempDir()
+	sources := map[string]string{
+		"webpack:///src/auth/login.tsx": "export const auth = 'login';",
+		"../config/settings.ts":         "export const api = 'https://api.test.com';",
+	}
+
+	written := scanner.UnpackSourcesToDisk(tmpDir, "https://example.com/main.js.map", sources)
+	if len(written) != 2 {
+		t.Errorf("UnpackSourcesToDisk expected 2 written files, got %d", len(written))
+	}
+}

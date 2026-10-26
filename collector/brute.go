@@ -19,8 +19,11 @@ var CommonJSPaths = []string{
 	"/env.production.js", "/config.production.js",
 	"/static/js/main.js", "/assets/js/app.js", "/dist/app.js",
 
-	// ── Framework manifests ──
-	"/asset-manifest.json", "/precache-manifest.js",
+	// ── Modern Cloud & SPA Runtime Config Endpoints ──
+	"/config.json", "/settings.json", "/env.json",
+	"/runtime-env.js", "/__ENV.js", "/env-config.js",
+	"/manifest.json", "/asset-manifest.json", "/precache-manifest.js",
+	"/.well-known/security.txt", "/api/config", "/api/v1/config", "/api/settings",
 
 	// ── Specific high-value endpoints ──
 	"/js/app.js", "/js/main.js", "/js/config.js", "/js/api.js",
@@ -102,7 +105,7 @@ func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 									mu.Unlock()
 								}
 							}
-						} else if strings.Contains(ct, "javascript") || strings.Contains(ct, "ecmascript") || strings.Contains(ct, "application/octet-stream") || strings.HasSuffix(urlStr, ".js") {
+						} else if strings.Contains(ct, "javascript") || strings.Contains(ct, "ecmascript") || strings.Contains(ct, "json") || strings.Contains(ct, "application/octet-stream") || strings.HasSuffix(urlStr, ".js") || strings.HasSuffix(urlStr, ".json") {
 							mu.Lock()
 							found = append(found, urlStr)
 							mu.Unlock()

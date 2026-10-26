@@ -21,6 +21,12 @@ var bracketAssignRe = regexp.MustCompile(`(?i)(?:\w+)\s*\[\s*['"]([a-zA-Z_$][a-z
 // Environment variable patterns: KEY=value or KEY="value"
 var envAssignRe = regexp.MustCompile(`(?m)^([A-Z][A-Z0-9_]{2,})\s*=\s*['"]?([^\s'"]{4,200})['"]?`)
 
+// Modern frontend framework inlined env variables: NEXT_PUBLIC_..., VITE_..., REACT_APP_...
+var frontendEnvRe = regexp.MustCompile(`(?i)(NEXT_PUBLIC_[A-Z0-9_]+|VITE_[A-Z0-9_]+|REACT_APP_[A-Z0-9_]+|GATSBY_[A-Z0-9_]+)\s*[:=]\s*['"]([^'"]{4,200})['"]`)
+
+// Process.env / import.meta inlined access
+var processEnvInlinedRe = regexp.MustCompile(`(?i)(?:process\.env\.|import\.meta\.env\.)([a-zA-Z0-9_]+)\s*[:=]\s*['"]([^'"]{4,200})['"]`)
+
 // Python/Ruby style: key = "value"
 var genericAssignRe = regexp.MustCompile(`(?i)([a-zA-Z_][a-zA-Z0-9_]*(?:key|secret|token|password|passwd|pwd|auth|credential|api|access|private|bearer|jwt|hmac|signing)[a-zA-Z0-9_]*)\s*=\s*['"]([^'"]{4,200})['"]`)
 
@@ -72,6 +78,8 @@ func ScanInlineAssign(dlMap map[string]string) []core.Finding {
 				{objPropRe, "Object Property"},
 				{bracketAssignRe, "Bracket Notation"},
 				{envAssignRe, "Environment Variable"},
+				{frontendEnvRe, "Frontend Inlined Env Variable"},
+				{processEnvInlinedRe, "Process/Meta Env Inlined"},
 				{genericAssignRe, "Generic Assignment"},
 				{templateLiteralRe, "Template Literal"},
 			}
@@ -160,6 +168,18 @@ func scoreInlineAssignment(varName, value string) (int, string) {
 	} else if sensitiveVarNameRe.MatchString(varName) {
 		confidence += 35
 		severity = "MEDIUM"
+	} else if strings.HasPrefix(strings.ToUpper(varName), "NEXT_PUBLIC_") ||
+		strings.HasPrefix(strings.ToUpper(varName), "VITE_") ||
+		strings.HasPrefix(strings.ToUpper(varName), "REACT_APP_") {
+		confidence += 30
+		severity = "MEDIUM"
+		if strings.Contains(strings.ToUpper(varName), "KEY") ||
+			strings.Contains(strings.ToUpper(varName), "SECRET") ||
+			strings.Contains(strings.ToUpper(varName), "TOKEN") ||
+			strings.Contains(strings.ToUpper(varName), "AUTH") {
+			confidence += 20
+			severity = "HIGH"
+		}
 	} else {
 		// Generic variable, only flag if value looks very secret-like
 		confidence += 5

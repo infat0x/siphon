@@ -1717,14 +1717,27 @@ func GetBankingKeywordRegex() string {
 // ── False Positive Filters ──────────────────────────────────────────────────
 
 // magicBytePrefixes are base64-encoded headers of common binary file formats.
-// Matches flagged with these prefixes are embedded images/PDFs, not secrets.
+// Matches flagged with these prefixes are embedded images/PDFs/fonts, not secrets.
 var magicBytePrefixes = []string{
-	"AAAANSUhE", // PNG (base64 of \x89PNG\r\n\x1a\n)
-	"JVBERi0",   // PDF (%PDF-)
-	"/9j/4",     // JPEG (0xFF 0xD8 0xFF)
-	"R0lGOD",    // GIF (GIF87a / GIF89a)
-	"UEsDB",     // ZIP / DOCX / XLSX
-	"AAAB",      // Various binary blobs
+	"iVBORw0KGgo", // PNG header (\x89PNG\r\n\x1a\n)
+	"AAAANSUhE",   // PNG IHDR chunk
+	"/9j/",        // JPEG (0xFF 0xD8 0xFF)
+	"R0lGOD",      // GIF (GIF87a / GIF89a)
+	"UklGR",       // WebP / RIFF / WAV container
+	"d09GMg",      // WOFF font
+	"d09GRg",      // WOFF2 font
+	"JVBERi0",     // PDF (%PDF-)
+	"UEsDB",       // ZIP / DOCX / XLSX / JAR
+	"AAAB",        // Windows ICO / binary blob
+	"AAAA",        // MP4 / QuickTime ftyp
+	"Qk0",         // BMP
+	"SUQz",        // MP3 ID3
+	"T2dnUw",      // OGG container
+	"data:image/",
+	"data:font/",
+	"data:application/",
+	"data:audio/",
+	"data:video/",
 }
 
 // IsMagicByteEncoded returns true if the string starts with a known base64-encoded
