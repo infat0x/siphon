@@ -1,7 +1,6 @@
 package scanner
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"regexp"
@@ -26,7 +25,7 @@ func ScanInterestingPaths(dlMap map[string]string) []core.Finding {
 	sem := make(chan struct{}, core.GlobalConfig.Threads)
 
 	for urlStr, filePath := range dlMap {
-		if filePath == "/dev/null" {
+		if filePath == "" || filePath == "/dev/null" {
 			continue
 		}
 
@@ -36,51 +35,32 @@ func ScanInterestingPaths(dlMap map[string]string) []core.Finding {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			file, err := os.Open(f)
+			data, err := os.ReadFile(f)
 			if err != nil {
 				return
 			}
-			defer file.Close()
+			content := string(data)
 
-			scanner := bufio.NewScanner(file)
-			// Ensure we can read long minified lines
-			buf := make([]byte, 0, 64*1024)
-			scanner.Buffer(buf, 1024*1024*10)
-
-			lineNum := 1
-			for scanner.Scan() {
-				line := scanner.Text()
-				
-				// Quick length check to prevent hanging on massive non-string blocks
-				if len(line) > 50000 {
-					continue
-				}
-
-				for pType, re := range interestingPatterns {
-					matches := re.FindAllString(line, -1)
-					for _, m := range matches {
-						// Filter out obvious false positives where the word is just a generic string 
-						// (Usually these will be standalone paths, so we check for slash boundaries)
-						if strings.HasPrefix(m, "/") || strings.Contains(m, ".") {
-							mu.Lock()
-							findings = append(findings, core.Finding{
-								Tool:       "InterestingPaths",
-								Type:       pType,
-								URL:        u,
-								File:       f,
-								Match:      m,
-								Line:       fmt.Sprintf("%d", lineNum),
-								Severity:   "MEDIUM", // Typically an exposure, not a direct credential compromise
-								Confidence: 80,
-							})
-							mu.Unlock()
-						}
+			for pType, re := range interestingPatterns {
+				matches := re.FindAllStringIndex(content, 100)
+				for _, m := range matches {
+					matchStr := content[m[0]:m[1]]
+					if strings.HasPrefix(matchStr, "/") || strings.Contains(matchStr, ".") {
+						lineNum := strings.Count(content[:m[0]], "\n") + 1
+						mu.Lock()
+						findings = append(findings, core.Finding{
+							Tool:       "InterestingPaths",
+							Type:       pType,
+							URL:        u,
+							File:       f,
+							Match:      matchStr,
+							Line:       fmt.Sprintf("%d", lineNum),
+							Severity:   "MEDIUM",
+							Confidence: 80,
+						})
+						mu.Unlock()
 					}
 				}
-				lineNum++
-			}
-			if err := scanner.Err(); err != nil {
-				fmt.Printf("Scanner error on file %s: %v\n", f, err)
 			}
 		}(urlStr, filePath)
 	}
