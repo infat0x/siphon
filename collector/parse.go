@@ -54,6 +54,7 @@ func ExtractDeepJS(initialJsUrls []string) []string {
 				return
 			}
 			req.Header.Set("User-Agent", "Mozilla/5.0")
+			core.ApplyCustomHeaders(req)
 			
 			resp, err := client.Do(req)
 			if err != nil {
@@ -149,6 +150,7 @@ func CheckSourceMaps(jsUrls []string) []string {
 				return
 			}
 			req.Header.Set("User-Agent", "Mozilla/5.0")
+			core.ApplyCustomHeaders(req)
 			
 			resp, err := client.Do(req)
 			if err != nil {

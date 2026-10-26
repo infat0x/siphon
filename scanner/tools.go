@@ -441,6 +441,7 @@ func CheckGitExposure(liveHosts []string, gitDir string, threads int) []string {
 		
 		req, _ := http.NewRequest("HEAD", url, nil)
 		req.Header.Set("User-Agent", "Mozilla/5.0")
+		core.ApplyCustomHeaders(req)
 		transport := &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: core.GlobalConfig.Insecure},
 		}

@@ -35,6 +35,9 @@ func RunHttpx(subsFile string, liveFile string) []string {
 	if core.GlobalConfig.Insecure {
 		args = append(args, "-no-verify-ssl")
 	}
+	for _, h := range core.GlobalConfig.Headers {
+		args = append(args, "-H", h)
+	}
 
 	cmd := exec.CommandContext(ctx, "httpx", args...)
 	_ = cmd.Run()

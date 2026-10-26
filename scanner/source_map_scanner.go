@@ -196,6 +196,7 @@ func downloadSourceMap(client *http.Client, mapURL string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	core.ApplyCustomHeaders(req)
 
 	resp, err := client.Do(req)
 	if err != nil {

@@ -128,6 +128,11 @@ func main() {
 	fileReport := flag.String("file", "", "Path to a previously generated report file (TXT or JSON) for AI analysis")
 	aiAuto := flag.Bool("ai", false, "Enable AI analysis (non-interactive)")
 	
+	var customHeaders core.HeaderSlice
+	flag.Var(&customHeaders, "H", "Custom HTTP header (can be used multiple times, e.g. -H 'Authorization: Bearer ...' -H 'Cookie: ...')")
+	flag.Var(&customHeaders, "header", "Alias for -H")
+	cookieFlag := flag.String("cookie", "", "Convenience flag for Cookie header (e.g. -cookie 'idToken=...; accessToken=...')")
+	
 	flag.Usage = func() {
 		core.PrintBanner()
 		fmt.Fprintf(os.Stderr, "  %sDescription:%s\n", core.BOLD, core.RESET)
@@ -137,7 +142,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  %sUsage:%s\n", core.BOLD, core.RESET)
 		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "    %s -s subdomains.txt -o results -t 50\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "    %s -url https://example.com/app.js -o results\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "    %s -url https://example.com/app.js -o results\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results -H \"Cookie: session=xyz\"\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results -cookie \"idToken=...; accessToken=...\"\n\n", os.Args[0])
 		
 		fmt.Fprintf(os.Stderr, "  %sFlags:%s\n", core.BOLD, core.RESET)
 		flag.PrintDefaults()
@@ -147,6 +154,14 @@ func main() {
 	}
 	
 	flag.Parse()
+
+	if *cookieFlag != "" {
+		cookieVal := *cookieFlag
+		if !strings.HasPrefix(strings.ToLower(cookieVal), "cookie:") {
+			cookieVal = "Cookie: " + cookieVal
+		}
+		customHeaders = append(customHeaders, cookieVal)
+	}
 
 	if *fileReport == "" && *outDir == "" || (*domain == "" && *subs == "" && *jsUrl == "" && *pathFilter == "" && *fileReport == "") {
 		flag.Usage()
@@ -199,6 +214,11 @@ func main() {
 	core.GlobalConfig = core.Config{
 		Insecure: *insecure,
 		Threads:  *threads,
+		Headers:  customHeaders,
+	}
+
+	if len(customHeaders) > 0 {
+		core.Logf("  %s[AUTH]%s %d custom header(s) loaded\n", core.GREEN, core.RESET, len(customHeaders))
 	}
 
 	dirs := map[string]string{

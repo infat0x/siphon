@@ -47,6 +47,7 @@ func attemptDownload(client *http.Client, urlStr, dlDir string, seenHashes *sync
 	req.Header.Set("Sec-Fetch-Mode", "no-cors")
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	req.Header.Set("Referer", urlStr)
+	core.ApplyCustomHeaders(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
