@@ -86,6 +86,7 @@ func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 					return
 				}
 				req.Header.Set("User-Agent", "Mozilla/5.0")
+				core.ApplyCustomHeaders(req)
 				resp, err := client.Do(req)
 				if err == nil {
 					defer resp.Body.Close()

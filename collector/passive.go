@@ -54,6 +54,9 @@ func RunKatana(urls []string) []string {
 	if core.GlobalConfig.Insecure {
 		args = append(args, "-insecure")
 	}
+	for _, h := range core.GlobalConfig.Headers {
+		args = append(args, "-H", h)
+	}
 	return runCmdLinesStdin(ctx, urls, "katana", args...)
 }
 
@@ -88,6 +91,9 @@ func RunKatanaHeadlessFast(hosts []string) []string {
 	args := []string{"-hl", "-jc", "-d", "1", "-c", "20", "-silent", "-nc", "-ef", "css,png,jpg,jpeg,gif,ico,svg,ttf,woff,woff2,eot,pdf,mp4,mp3,zip"}
 	if core.GlobalConfig.Insecure {
 		args = append(args, "-insecure")
+	}
+	for _, h := range core.GlobalConfig.Headers {
+		args = append(args, "-H", h)
 	}
 	return runCmdLinesStdin(ctx, hosts, "katana", args...)
 }

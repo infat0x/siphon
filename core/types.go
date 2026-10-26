@@ -1,6 +1,21 @@
 package core
 
-import "sync"
+import (
+	"strings"
+	"sync"
+)
+
+// HeaderSlice allows specifying multiple -H flags in the CLI.
+type HeaderSlice []string
+
+func (h *HeaderSlice) String() string {
+	return strings.Join(*h, ", ")
+}
+
+func (h *HeaderSlice) Set(value string) error {
+	*h = append(*h, value)
+	return nil
+}
 
 // Finding represents a single discovered secret or exposure.
 type Finding struct {
@@ -21,6 +36,7 @@ type Finding struct {
 type Config struct {
 	Insecure bool
 	Threads  int
+	Headers  []string
 }
 
 var GlobalConfig Config

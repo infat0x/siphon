@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -117,4 +118,15 @@ func IsValidJS(content []byte) bool {
 	return !htmlErrorRe.MatchString(head)
 }
 
-
+// ApplyCustomHeaders attaches all user-defined headers from GlobalConfig to an HTTP request.
+func ApplyCustomHeaders(req *http.Request) {
+	if req == nil {
+		return
+	}
+	for _, h := range GlobalConfig.Headers {
+		parts := strings.SplitN(h, ":", 2)
+		if len(parts) == 2 {
+			req.Header.Set(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+		}
+	}
+}
