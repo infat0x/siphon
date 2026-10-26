@@ -5,7 +5,7 @@ The `main.go` file is the entry point of the Siphon application. It acts as the 
 ## Overview
 
 Siphon is designed to be a hyper-concurrent offensive security engine. The `main.go` file handles the following core responsibilities:
-1. **Command Line Flag Parsing**: Accepts parameters like `-domain`, `-url`, `-s` (subdomains), and operational flags like `-insecure`.
+1. **Command Line Flag Parsing**: Accepts parameters like `-domain`, `-url`, `-s` (subdomains), authentication flags (`-H`, `-cookie`), and operational flags like `-insecure`.
 2. **Environment & Dependency Checks**: Ensures tools like `httpx`, `katana`, `nuclei` are installed and API keys (like OpenAI) are available.
 3. **Execution Pipeline**: Sequentially triggers the live host detection, URL collection, JS extraction, downloading, and finally secret scanning.
 

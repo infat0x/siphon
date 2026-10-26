@@ -127,6 +127,10 @@ siphon -s subs.txt -o output/ -skip-download
 
 # Analyze a pre-scanned report directly with AI
 siphon -file output/secrets/final_report.txt -ai
+
+# Authenticated scanning (with session cookies or JWT bearer tokens)
+siphon -domain example.com -o output/ -cookie "session=xyz; idToken=abc"
+siphon -domain example.com -o output/ -H "Authorization: Bearer <jwt_token>"
 ```
 
 ## Flags
@@ -146,6 +150,8 @@ siphon -file output/secrets/final_report.txt -ai
 | `-path` | Filter JS URLs by specific path (e.g. /admin/) |
 | `-file` | Path to a previously generated report file (TXT or JSON) for AI analysis |
 | `-ai` | Enable AI analysis (non-interactive) |
+| `-H` / `-header` | Custom HTTP header (can be repeated, e.g. `-H 'Authorization: Bearer ...'`) |
+| `-cookie` | Convenience flag for session cookies (e.g. `-cookie 'session=xyz'`) |
 
 ## Output Structure
 

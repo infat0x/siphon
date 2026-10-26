@@ -61,3 +61,6 @@ func ActiveHTMLScrape(liveHosts []string) []string {
 
 > [!WARNING]
 > By default, the active scraper ignores TLS certificate errors if the global `-insecure` flag is passed via the CLI, allowing it to function against corporate or self-signed targets.
+
+### Authenticated Scraping
+When session cookies or custom headers are supplied via `-cookie` or `-H`, `ActiveHTMLScrape` automatically attaches them to outbound HTTP requests using `core.ApplyCustomHeaders(req)`. This allows Siphon to render authenticated pages and extract internal `<script>` tags that are only visible to logged-in users.

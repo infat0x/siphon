@@ -16,3 +16,8 @@ GITHUB_TOKEN=your_token_here
 
 > [!WARNING]
 > Keep your `.env` file secure and never commit it to source control.
+
+## Authentication & Custom Headers
+To scan protected portals or applications requiring login sessions, you can supply custom headers:
+- `-H` / `-header`: Set any HTTP header (e.g. `-H "Authorization: Bearer <token>"`)
+- `-cookie`: Convenience flag for cookie session strings (e.g. `-cookie "session=xyz; idToken=abc"`)
