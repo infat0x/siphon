@@ -54,3 +54,6 @@ if err != nil || finalPath == "" {
     // ... attempts download with fallbackURL
 }
 ```
+
+### Authenticated File Acquisition
+When downloading JavaScript files behind authenticated endpoints or restricted CDNs, the downloader applies all headers configured in `core.GlobalConfig.Headers` to the `http.Request` via `core.ApplyCustomHeaders(req)`. This avoids 401 Unauthorized or 403 Forbidden errors when fetching protected JavaScript assets.

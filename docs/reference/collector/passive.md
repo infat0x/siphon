@@ -56,3 +56,6 @@ args := []string{"-jc", "-d", "3", "-c", "50", "-silent", "-nc",
 
 > [!TIP]
 > If Siphon is run with the `-insecure` flag, it automatically passes the `-insecure` argument down to Katana and Hakrawler to ensure they function properly behind corporate proxies or against targets with broken SSL configurations.
+
+### Authenticated Crawling with Katana
+When custom headers or session cookies are configured, both `RunKatana` and `RunKatanaHeadlessFast` automatically append `-H <header>` arguments to Katana's command line. This allows Katana to crawl authenticated routes and dynamically render DOM components to reveal authenticated JavaScript chunks.

@@ -33,10 +33,14 @@ type Finding struct {
 The `Config` struct holds the runtime configuration passed via CLI flags. It is instantiated once as the `GlobalConfig` variable.
 
 ```go
+// HeaderSlice allows specifying multiple -H flags in the CLI.
+type HeaderSlice []string
+
 // Config holds global flags.
 type Config struct {
 	Insecure bool
 	Threads  int
+	Headers  []string
 }
 
 var GlobalConfig Config
