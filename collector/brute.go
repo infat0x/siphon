@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"siphon-go/core"
@@ -66,7 +67,7 @@ func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 	sem := make(chan struct{}, core.GlobalConfig.Threads*2)
 	var wg sync.WaitGroup
 
-	core.Logf("  %s→%s  Brute-force %d common JS paths...\n", core.MAGENTA, core.RESET, len(CommonJSPaths))
+	sp := core.StartSpinner(fmt.Sprintf("Brute-forcing %d common JS and config paths...", len(CommonJSPaths)))
 
 	for _, host := range liveHosts {
 		host = strings.TrimRight(host, "/")
@@ -117,5 +118,8 @@ func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 	}
 
 	wg.Wait()
+	if sp != nil {
+		sp.Success(fmt.Sprintf("JS and config path discovery complete [%d endpoints found]", len(found)))
+	}
 	return found
 }

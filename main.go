@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"siphon-go/scanner"
 	"github.com/joho/godotenv"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -424,13 +425,15 @@ func main() {
 				{"Hakrawler", collector.RunHakrawler},
 			}
 
+			tracker := core.NewParallelTracker(len(tools)+1, "Harvesting URLs", "URLs")
+
 			for _, t := range tools {
 				wg.Add(1)
 				go func(name string, tool func([]string) []string) {
 					defer wg.Done()
-					sp := core.StartSpinner(fmt.Sprintf("Running %s...", name))
+					tracker.TaskStarted(name)
 					res := tool(live)
-					sp.Success(fmt.Sprintf("%s finished (%d URLs)", name, len(res)))
+					tracker.TaskFinished(name, len(res))
 					
 					mu.Lock()
 					allUrls = append(allUrls, res...)
@@ -441,9 +444,9 @@ func main() {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				sp := core.StartSpinner("Running Active HTML Scrape...")
+				tracker.TaskStarted("Active HTML Scrape")
 				res := collector.ActiveHTMLScrape(live)
-				sp.Success(fmt.Sprintf("Active HTML Scrape finished (%d URLs)", len(res)))
+				tracker.TaskFinished("Active HTML Scrape", len(res))
 				
 				mu.Lock()
 				allUrls = append(allUrls, res...)
@@ -457,10 +460,9 @@ func main() {
 				allUrls = core.FilterInScope(allUrls, core.GlobalConfig.Scope)
 			}
 			os.WriteFile(urlsFile, []byte(strings.Join(allUrls, "\n")+"\n"), 0644)
-			core.PrintResult("", "unique urls", len(allUrls), "")
+			tracker.Stop(fmt.Sprintf("URL Collection complete [%d unique URLs]", len(allUrls)))
 		}
 		stats.SetUrls(len(allUrls))
-		core.PrintSuccess(fmt.Sprintf("URL Collection complete [%d URLs]", len(allUrls)))
 
 		// 3. JS Extraction & Filter
 		core.PrintSection(3, 6, "JavaScript Extraction (Static)")
@@ -594,17 +596,19 @@ func main() {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
+	tracker := core.NewParallelTracker(engineCount, "Scanning engines", "findings")
+
 	runScanner := func(name string, f func() []core.Finding) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sp := core.StartSpinner(fmt.Sprintf("Scanning with %s...", name))
+			tracker.TaskStarted(name)
 			res := f()
+			tracker.TaskFinished(name, len(res))
 			
 			mu.Lock()
 			allFindings = append(allFindings, res...)
 			mu.Unlock()
-			sp.Success(fmt.Sprintf("%-16s finished (%d findings)", name, len(res)))
 		}()
 	}
 
@@ -635,6 +639,30 @@ func main() {
 	runScanner("InterestingPaths", func() []core.Finding { return scanner.ScanInterestingPaths(dlMap) })
 
 	wg.Wait()
+	tracker.Stop(fmt.Sprintf("Secret Scanning complete [%d engines | %d findings]", engineCount, len(allFindings)))
+
+	// Display clean summary of non-zero findings
+	results := tracker.Results()
+	type engRes struct {
+		name  string
+		count int
+	}
+	var nonZero []engRes
+	for name, count := range results {
+		if count > 0 {
+			nonZero = append(nonZero, engRes{name, count})
+		}
+	}
+	sort.Slice(nonZero, func(i, j int) bool {
+		return nonZero[i].count > nonZero[j].count
+	})
+	if len(nonZero) > 0 && !core.GlobalConfig.Silent {
+		fmt.Println()
+		for _, er := range nonZero {
+			fmt.Printf("    - %-18s : %d findings\n", er.name, er.count)
+		}
+		fmt.Println()
+	}
 	reverseMap := make(map[string]string)
 	for u, p := range dlMap {
 		if p != "/dev/null" {

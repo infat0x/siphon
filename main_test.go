@@ -206,3 +206,22 @@ func TestUnpackSourcesToDisk(t *testing.T) {
 		t.Errorf("UnpackSourcesToDisk expected 2 written files, got %d", len(written))
 	}
 }
+
+func TestParallelTracker(t *testing.T) {
+	tracker := core.NewParallelTracker(3, "Testing tasks", "items")
+	tracker.TaskStarted("TaskA")
+	tracker.TaskStarted("TaskB")
+	tracker.TaskFinished("TaskA", 10)
+	tracker.TaskFinished("TaskB", 5)
+	tracker.TaskStarted("TaskC")
+	tracker.TaskFinished("TaskC", 0)
+	tracker.Stop("Testing completed")
+
+	results := tracker.Results()
+	if results["TaskA"] != 10 {
+		t.Errorf("Expected TaskA to have 10 items, got %d", results["TaskA"])
+	}
+	if results["TaskB"] != 5 {
+		t.Errorf("Expected TaskB to have 5 items, got %d", results["TaskB"])
+	}
+}

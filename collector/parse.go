@@ -2,6 +2,7 @@ package collector
 
 import (
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -40,7 +41,7 @@ func ExtractDeepJS(initialJsUrls []string) []string {
 	sem := make(chan struct{}, core.GlobalConfig.Threads)
 	var wg sync.WaitGroup
 
-	core.Logf("  %s→%s  Deep parsing %d JS files for chunks/dynamic imports...\n", core.MAGENTA, core.RESET, len(initialJsUrls))
+	sp := core.StartSpinner(fmt.Sprintf("Deep parsing %d JS files for chunks/dynamic imports...", len(initialJsUrls)))
 
 	for _, urlStr := range initialJsUrls {
 		wg.Add(1)
@@ -109,8 +110,12 @@ func ExtractDeepJS(initialJsUrls []string) []string {
 	
 	// Also append the original URLs
 	found = append(found, initialJsUrls...)
+	deduped := core.Dedup(found)
+	if sp != nil {
+		sp.Success(fmt.Sprintf("Deep parse finished [%d dynamic chunks discovered]", len(deduped)))
+	}
 	
-	return core.Dedup(found)
+	return deduped
 }
 
 // CheckSourceMaps takes a list of JS URLs, checks if .js.map exists, and returns the live map URLs.
@@ -134,7 +139,7 @@ func CheckSourceMaps(jsUrls []string) []string {
 	sem := make(chan struct{}, core.GlobalConfig.Threads*2)
 	var wg sync.WaitGroup
 
-	core.Logf("  %s→%s  Checking for source maps (.js.map) on %d files...\n", core.MAGENTA, core.RESET, len(jsUrls))
+	sp := core.StartSpinner(fmt.Sprintf("Checking for source maps (.js.map) on %d files...", len(jsUrls)))
 
 	for _, urlStr := range jsUrls {
 		wg.Add(1)
@@ -170,5 +175,8 @@ func CheckSourceMaps(jsUrls []string) []string {
 	}
 
 	wg.Wait()
+	if sp != nil {
+		sp.Success(fmt.Sprintf("Source map check complete [%d live maps found]", len(liveMaps)))
+	}
 	return liveMaps
 }

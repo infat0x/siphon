@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pterm/pterm"
@@ -213,21 +214,152 @@ func Logln(a ...interface{}) {
 	Info(msg)
 }
 
-type DummySpinner struct{}
-
-func (d *DummySpinner) Success(msg string) {
-	PrintSuccess(msg)
+type Spinner struct {
+	ptermSpinner *pterm.SpinnerPrinter
 }
 
-func (d *DummySpinner) Fail(msg string) {
-	PrintError(msg)
-}
-
-func StartSpinner(text string) *DummySpinner {
-	if !GlobalConfig.Silent {
-		fmt.Printf("  %s>%s %s\n", cDim, RESET, text)
+func (s *Spinner) Success(msg string) {
+	if s == nil {
+		return
 	}
-	return &DummySpinner{}
+	if s.ptermSpinner != nil {
+		s.ptermSpinner.Success(msg)
+	} else if !GlobalConfig.Silent {
+		PrintSuccess(msg)
+	}
+}
+
+func (s *Spinner) Fail(msg string) {
+	if s == nil {
+		return
+	}
+	if s.ptermSpinner != nil {
+		s.ptermSpinner.Fail(msg)
+	} else if !GlobalConfig.Silent {
+		PrintError(msg)
+	}
+}
+
+func (s *Spinner) UpdateText(text string) {
+	if s != nil && s.ptermSpinner != nil {
+		s.ptermSpinner.UpdateText(text)
+	}
+}
+
+func StartSpinner(text string) *Spinner {
+	if GlobalConfig.Silent {
+		return &Spinner{}
+	}
+	sp, err := pterm.DefaultSpinner.Start(text)
+	if err != nil {
+		fmt.Printf("  %s>%s %s\n", cDim, RESET, text)
+		return &Spinner{}
+	}
+	return &Spinner{ptermSpinner: sp}
+}
+
+// ParallelTracker coordinates a single dynamic progress bar across multiple concurrent goroutines.
+type ParallelTracker struct {
+	mu          sync.Mutex
+	pb          *pterm.ProgressbarPrinter
+	total       int
+	completed   int
+	baseTitle   string
+	itemLabel   string
+	totalItems  int
+	activeTasks map[string]struct{}
+	results     map[string]int
+}
+
+func NewParallelTracker(total int, baseTitle string, itemLabel string) *ParallelTracker {
+	tracker := &ParallelTracker{
+		total:       total,
+		baseTitle:   baseTitle,
+		itemLabel:   itemLabel,
+		activeTasks: make(map[string]struct{}),
+		results:     make(map[string]int),
+	}
+
+	if !GlobalConfig.Silent {
+		pb, err := pterm.DefaultProgressbar.WithTotal(total).WithTitle("  " + baseTitle).Start()
+		if err == nil {
+			tracker.pb = pb
+		}
+	}
+	return tracker
+}
+
+func (t *ParallelTracker) TaskStarted(name string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.activeTasks[name] = struct{}{}
+	t.updateTitleLocked()
+}
+
+func (t *ParallelTracker) TaskFinished(name string, itemsCount int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	delete(t.activeTasks, name)
+	t.completed++
+	t.totalItems += itemsCount
+	t.results[name] = itemsCount
+
+	if t.pb != nil {
+		t.pb.Increment()
+	}
+	t.updateTitleLocked()
+}
+
+func (t *ParallelTracker) updateTitleLocked() {
+	if t.pb == nil {
+		return
+	}
+
+	var activeList []string
+	for name := range t.activeTasks {
+		activeList = append(activeList, name)
+		if len(activeList) >= 2 {
+			break
+		}
+	}
+
+	title := fmt.Sprintf("  %s", t.baseTitle)
+	if len(activeList) > 0 {
+		title += fmt.Sprintf(" (%s", strings.Join(activeList, ", "))
+		if len(t.activeTasks) > len(activeList) {
+			title += fmt.Sprintf(" +%d", len(t.activeTasks)-len(activeList))
+		}
+		title += ")"
+	}
+	if t.totalItems > 0 {
+		title += fmt.Sprintf(" | %d %s", t.totalItems, t.itemLabel)
+	}
+
+	t.pb.UpdateTitle(title)
+}
+
+func (t *ParallelTracker) Stop(doneMsg string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.pb != nil {
+		t.pb.Stop()
+	}
+
+	if doneMsg != "" {
+		PrintSuccess(doneMsg)
+	}
+}
+
+func (t *ParallelTracker) Results() map[string]int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	cp := make(map[string]int, len(t.results))
+	for k, v := range t.results {
+		cp[k] = v
+	}
+	return cp
 }
 
 func StartProgressBar(total int, text string) *pterm.ProgressbarPrinter {
