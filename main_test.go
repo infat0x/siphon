@@ -99,3 +99,53 @@ func TestDedupFindingsFullMatch(t *testing.T) {
 		t.Errorf("DedupFindings collapsed distinct findings with similar prefix: got %d, expected 2", len(res))
 	}
 }
+
+func TestScopeFiltering(t *testing.T) {
+	scope := "*.example.com,target.org"
+
+	inScopeTests := []string{
+		"https://example.com/app.js",
+		"https://api.example.com/v1/auth.js",
+		"https://sub.child.example.com/test.js",
+		"http://target.org/main.js",
+		"https://api.target.org/data.js",
+	}
+
+	for _, u := range inScopeTests {
+		if !core.IsInScope(u, scope) {
+			t.Errorf("IsInScope failed to match in-scope URL: %s with scope %s", u, scope)
+		}
+	}
+
+	outOfScopeTests := []string{
+		"https://google.com/analytics.js",
+		"https://evil-example.com/bad.js",
+		"https://notexample.com/test.js",
+		"https://another-target.org.evil.com/app.js",
+	}
+
+	for _, u := range outOfScopeTests {
+		if core.IsInScope(u, scope) {
+			t.Errorf("IsInScope incorrectly matched out-of-scope URL: %s with scope %s", u, scope)
+		}
+	}
+
+	allUrls := append(inScopeTests, outOfScopeTests...)
+	filtered := core.FilterInScope(allUrls, scope)
+	if len(filtered) != len(inScopeTests) {
+		t.Errorf("FilterInScope returned %d items, expected %d", len(filtered), len(inScopeTests))
+	}
+}
+
+func TestProxyTransportConfiguration(t *testing.T) {
+	core.GlobalConfig.Proxy = "http://127.0.0.1:8080"
+	defer func() { core.GlobalConfig.Proxy = "" }()
+
+	tr := core.GetHTTPTransport()
+	if tr == nil {
+		t.Fatalf("GetHTTPTransport returned nil")
+	}
+	if tr.Proxy == nil {
+		t.Fatalf("GetHTTPTransport did not set proxy function when GlobalConfig.Proxy is configured")
+	}
+}

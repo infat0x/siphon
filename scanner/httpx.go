@@ -35,6 +35,12 @@ func RunHttpx(subsFile string, liveFile string) []string {
 	if core.GlobalConfig.Insecure {
 		args = append(args, "-no-verify-ssl")
 	}
+	if core.GlobalConfig.Proxy != "" {
+		args = append(args, "-http-proxy", core.GlobalConfig.Proxy)
+	}
+	if core.GlobalConfig.RateLimit > 0 {
+		args = append(args, "-rl", fmt.Sprintf("%d", core.GlobalConfig.RateLimit))
+	}
 	for _, h := range core.GlobalConfig.Headers {
 		args = append(args, "-H", h)
 	}

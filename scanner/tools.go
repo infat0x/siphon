@@ -465,6 +465,12 @@ func CheckGitExposure(liveHosts []string, gitDir string, threads int) []string {
 
 func ScanCariddi(dlMap map[string]string, rawDir string, logDir string) []core.Finding {
 	var findings []core.Finding
+
+	if _, err := exec.LookPath("cariddi"); err != nil {
+		core.Info("Cariddi skipped — not installed")
+		return findings
+	}
+
 	var urls []string
 	for u, p := range dlMap {
 		if p != "" && p != "/dev/null" {
@@ -551,6 +557,12 @@ func ScanCariddi(dlMap map[string]string, rawDir string, logDir string) []core.F
 
 func ScanSubjs(dlMap map[string]string, rawDir string, logDir string) []core.Finding {
 	var findings []core.Finding
+
+	if _, err := exec.LookPath("subjs"); err != nil {
+		core.Info("Subjs skipped — not installed")
+		return findings
+	}
+
 	var urls []string
 	for u, p := range dlMap {
 		if p != "" && p != "/dev/null" {

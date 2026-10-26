@@ -3,6 +3,7 @@ package collector
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"siphon-go/core"
@@ -54,6 +55,12 @@ func RunKatana(urls []string) []string {
 	if core.GlobalConfig.Insecure {
 		args = append(args, "-insecure")
 	}
+	if core.GlobalConfig.Proxy != "" {
+		args = append(args, "-proxy", core.GlobalConfig.Proxy)
+	}
+	if core.GlobalConfig.RateLimit > 0 {
+		args = append(args, "-rl", fmt.Sprintf("%d", core.GlobalConfig.RateLimit))
+	}
 	for _, h := range core.GlobalConfig.Headers {
 		args = append(args, "-H", h)
 	}
@@ -78,6 +85,9 @@ func RunHakrawler(urls []string) []string {
 	if core.GlobalConfig.Insecure {
 		args = append(args, "-insecure")
 	}
+	if core.GlobalConfig.Proxy != "" {
+		args = append(args, "-proxy", core.GlobalConfig.Proxy)
+	}
 	for _, h := range core.GlobalConfig.Headers {
 		args = append(args, "-h", h)
 	}
@@ -94,6 +104,12 @@ func RunKatanaHeadlessFast(hosts []string) []string {
 	args := []string{"-hl", "-jc", "-d", "1", "-c", "20", "-silent", "-nc", "-ef", "css,png,jpg,jpeg,gif,ico,svg,ttf,woff,woff2,eot,pdf,mp4,mp3,zip"}
 	if core.GlobalConfig.Insecure {
 		args = append(args, "-insecure")
+	}
+	if core.GlobalConfig.Proxy != "" {
+		args = append(args, "-proxy", core.GlobalConfig.Proxy)
+	}
+	if core.GlobalConfig.RateLimit > 0 {
+		args = append(args, "-rl", fmt.Sprintf("%d", core.GlobalConfig.RateLimit))
 	}
 	for _, h := range core.GlobalConfig.Headers {
 		args = append(args, "-H", h)

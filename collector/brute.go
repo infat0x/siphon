@@ -1,7 +1,6 @@
 package collector
 
 import (
-	"crypto/tls"
 	"io"
 	"net/http"
 	"siphon-go/core"
@@ -53,12 +52,8 @@ func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 		}
 		pathFilter = strings.TrimRight(pathFilter, "/")
 	}
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: core.GlobalConfig.Insecure},
-		MaxIdleConns:    200,
-	}
 	client := &http.Client{
-		Transport: transport,
+		Transport: core.GetHTTPTransport(),
 		Timeout:   8 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -79,6 +74,8 @@ func BruteJSPaths(liveHosts []string, pathFilter string) []string {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
+
+				core.WaitRateLimit()
 
 				// Use GET instead of HEAD so we can read body for HTML if needed
 				req, err := http.NewRequest("GET", urlStr, nil)

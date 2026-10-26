@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"siphon-go/core"
@@ -123,10 +124,6 @@ func DownloadJS(urls []string, dlDir string, threads int, pb *pterm.ProgressbarP
 		DisableKeepAlives:   false,
 		ForceAttemptHTTP2:   true,
 	}
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   10 * time.Second,
-	}
 
 	insecureTransport := &http.Transport{
 		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
@@ -136,6 +133,17 @@ func DownloadJS(urls []string, dlDir string, threads int, pb *pterm.ProgressbarP
 		IdleConnTimeout:     10 * time.Second,
 		DisableKeepAlives:   false,
 		ForceAttemptHTTP2:   true,
+	}
+
+	if core.GlobalConfig.Proxy != "" {
+		if proxyURL, err := url.Parse(core.GlobalConfig.Proxy); err == nil {
+			transport.Proxy = http.ProxyURL(proxyURL)
+			insecureTransport.Proxy = http.ProxyURL(proxyURL)
+		}
+	}
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   10 * time.Second,
 	}
 	insecureClient := &http.Client{
 		Transport: insecureTransport,
@@ -161,6 +169,7 @@ func DownloadJS(urls []string, dlDir string, threads int, pb *pterm.ProgressbarP
 		go func() {
 			defer wg.Done()
 			for urlStr := range urlChan {
+				core.WaitRateLimit()
 				finalPath, err := attemptDownload(client, urlStr, dlDir, &seenHashes)
 
 				// Protocol Fallback: if primary attempt failed, try alternate protocol or insecure client

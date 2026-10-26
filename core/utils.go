@@ -117,6 +117,39 @@ func IsValidJS(content []byte) bool {
 	return !htmlErrorRe.MatchString(head)
 }
 
+// GetHTTPTransport returns an http.Transport configured with TLS settings and Proxy if specified.
+func GetHTTPTransport() *http.Transport {
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: GlobalConfig.Insecure,
+		},
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 20,
+		IdleConnTimeout:     90 * time.Second,
+	}
+	if GlobalConfig.Proxy != "" {
+		if proxyURL, err := url.Parse(GlobalConfig.Proxy); err == nil {
+			tr.Proxy = http.ProxyURL(proxyURL)
+		}
+	}
+	return tr
+}
+
+// GetHTTPClient returns an http.Client with configured transport and specified timeout.
+func GetHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Transport: GetHTTPTransport(),
+		Timeout:   timeout,
+	}
+}
+
+// WaitRateLimit pauses execution if GlobalConfig.Delay is configured.
+func WaitRateLimit() {
+	if GlobalConfig.Delay > 0 {
+		time.Sleep(time.Duration(GlobalConfig.Delay) * time.Millisecond)
+	}
+}
+
 // ApplyCustomHeaders attaches all user-defined headers from GlobalConfig to an HTTP request.
 func ApplyCustomHeaders(req *http.Request) {
 	if req == nil {
@@ -142,11 +175,7 @@ func CheckAuthStatus(targetURL string) (bool, string) {
 
 	targetURL = NormaliseHost(targetURL)
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: GlobalConfig.Insecure,
-		},
-	}
+	tr := GetHTTPTransport()
 
 	var redirectedToLogin bool
 

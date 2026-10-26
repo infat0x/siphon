@@ -1,7 +1,6 @@
 package collector
 
 import (
-	"crypto/tls"
 	"io"
 	"net/http"
 	"net/url"
@@ -70,13 +69,7 @@ func ActiveHTMLScrape(liveHosts []string) []string {
 	var found []string
 	var mu sync.Mutex
 
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: core.GlobalConfig.Insecure},
-	}
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   15 * time.Second,
-	}
+	client := core.GetHTTPClient(15 * time.Second)
 
 	sem := make(chan struct{}, core.GlobalConfig.Threads)
 	var wg sync.WaitGroup
@@ -87,6 +80,8 @@ func ActiveHTMLScrape(liveHosts []string) []string {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+
+			core.WaitRateLimit()
 
 			req, err := http.NewRequest("GET", urlStr, nil)
 			if err != nil {

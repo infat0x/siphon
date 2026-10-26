@@ -37,6 +37,9 @@ func ClearScreen() {
 
 // PrintBanner prints a minimal one-line branded header.
 func PrintBanner() {
+	if GlobalConfig.Silent {
+		return
+	}
 	ClearScreen()
 	fmt.Println()
 	fmt.Printf("  %s%ssiphon%s %sv7%s %s|%s js secret scanner %s|%s 15 engines%s\n",
@@ -50,6 +53,9 @@ func PrintBanner() {
 
 // PrintSection prints a step header: [1/5] title
 func PrintSection(step int, total int, title string) {
+	if GlobalConfig.Silent {
+		return
+	}
 	fmt.Println()
 	fmt.Println()
 	fmt.Printf("  %s[%d/%d]%s %s%s%s\n",
@@ -59,6 +65,9 @@ func PrintSection(step int, total int, title string) {
 
 // PrintResult prints a key-value line:  > label    value
 func PrintResult(icon string, label string, value interface{}, valueColor string) {
+	if GlobalConfig.Silent {
+		return
+	}
 	if valueColor == "" {
 		valueColor = cWhite
 	}
@@ -71,6 +80,9 @@ func PrintResult(icon string, label string, value interface{}, valueColor string
 
 // PrintAuthStatus probes targetURL and prints AUTH (green) or UNAUTH (red).
 func PrintAuthStatus(targetURL string) {
+	if GlobalConfig.Silent {
+		return
+	}
 	isAuth, statusText := CheckAuthStatus(targetURL)
 	if isAuth {
 		PrintResult("", "auth", statusText, GREEN)
@@ -81,11 +93,17 @@ func PrintAuthStatus(targetURL string) {
 
 // PrintSuccess prints a completion message.
 func PrintSuccess(msg string) {
+	if GlobalConfig.Silent {
+		return
+	}
 	fmt.Printf("  %s%s[OK]%s %s\n", cGreen, BOLD, RESET, msg)
 }
 
 // PrintWarning prints a warning message.
 func PrintWarning(msg string) {
+	if GlobalConfig.Silent {
+		return
+	}
 	fmt.Printf("  %s%s[WARN]%s %s\n", cAmber, BOLD, RESET, msg)
 }
 
@@ -96,11 +114,17 @@ func PrintError(msg string) {
 
 // PrintDivider prints a subtle horizontal rule.
 func PrintDivider() {
+	if GlobalConfig.Silent {
+		return
+	}
 	fmt.Printf("  %s%s%s\n", cDim, strings.Repeat("\u2500", 52), RESET)
 }
 
 // PrintScanEngineStart prints a compact scan phase header.
 func PrintScanEngineStart(engineCount int) {
+	if GlobalConfig.Silent {
+		return
+	}
 	fmt.Println()
 	PrintDivider()
 	fmt.Printf("  %s%s%d scan engines starting%s\n", cWhite, BOLD, engineCount, RESET)
@@ -109,6 +133,9 @@ func PrintScanEngineStart(engineCount int) {
 
 // PrintFinalStats prints the final statistics block.
 func PrintFinalStats(findings int, critical int, high int, medium int, elapsed time.Duration, reportPath string) {
+	if GlobalConfig.Silent {
+		return
+	}
 	fmt.Println()
 	PrintDivider()
 	fmt.Printf("  %s%sscan complete%s\n", cWhite, BOLD, RESET)
@@ -172,13 +199,17 @@ func StopUI() {
 
 func Logf(format string, a ...interface{}) {
 	msg := fmt.Sprintf(format, a...)
-	fmt.Print(msg)
+	if !GlobalConfig.Silent {
+		fmt.Print(msg)
+	}
 	Info(msg)
 }
 
 func Logln(a ...interface{}) {
 	msg := fmt.Sprintln(a...)
-	fmt.Print(msg)
+	if !GlobalConfig.Silent {
+		fmt.Print(msg)
+	}
 	Info(msg)
 }
 
@@ -193,11 +224,16 @@ func (d *DummySpinner) Fail(msg string) {
 }
 
 func StartSpinner(text string) *DummySpinner {
-	fmt.Printf("  %s>%s %s\n", cDim, RESET, text)
+	if !GlobalConfig.Silent {
+		fmt.Printf("  %s>%s %s\n", cDim, RESET, text)
+	}
 	return &DummySpinner{}
 }
 
 func StartProgressBar(total int, text string) *pterm.ProgressbarPrinter {
+	if GlobalConfig.Silent {
+		return nil
+	}
 	p, _ := pterm.DefaultProgressbar.WithTotal(total).WithTitle("  " + text).Start()
 	return p
 }

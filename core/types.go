@@ -19,24 +19,33 @@ func (h *HeaderSlice) Set(value string) error {
 
 // Finding represents a single discovered secret or exposure.
 type Finding struct {
-	Tool         string `json:"tool"`
-	Type         string `json:"type"`
-	URL          string `json:"url"`
-	File         string `json:"file"`
-	Match        string `json:"match"`
-	Line         string `json:"line"`
-	Entropy      string `json:"entropy"`
-	Context      string `json:"context,omitempty"`
-	Severity     string `json:"severity,omitempty"`     // CRITICAL, HIGH, MEDIUM, LOW, INFO
-	Confidence   int    `json:"confidence,omitempty"`    // 0-100
-	DecodedMatch string `json:"decoded_match,omitempty"` // Decoded value for base64/hex/url-encoded secrets
+	Tool           string `json:"tool"`
+	Type           string `json:"type"`
+	URL            string `json:"url"`
+	File           string `json:"file"`
+	Match          string `json:"match"`
+	Line           string `json:"line"`
+	Entropy        string `json:"entropy"`
+	Context        string `json:"context,omitempty"`
+	Severity       string `json:"severity,omitempty"`        // CRITICAL, HIGH, MEDIUM, LOW, INFO
+	Confidence     int    `json:"confidence,omitempty"`      // 0-100
+	DecodedMatch   string `json:"decoded_match,omitempty"`   // Decoded value for base64/hex/url-encoded secrets
+	Validated      bool   `json:"validated,omitempty"`       // True if live verification succeeded
+	ValidationInfo string `json:"validation_info,omitempty"` // Details from verification probe (e.g. user/account info)
 }
 
 // Config holds global flags.
 type Config struct {
-	Insecure bool
-	Threads  int
-	Headers  []string
+	Insecure   bool
+	Threads    int
+	Headers    []string
+	Proxy      string // HTTP/SOCKS5 proxy, e.g. http://127.0.0.1:8080
+	Scope      string // Domain/wildcard scope, e.g. *.example.com or example.com
+	Silent     bool   // Suppress banner and progress UI
+	JSONOutput bool   // Direct JSON streaming / JSON reporting
+	Validate   bool   // Active secret verification
+	RateLimit  int    // Requests per second limit (0 = unlimited)
+	Delay      int    // Delay in milliseconds between requests
 }
 
 var GlobalConfig Config

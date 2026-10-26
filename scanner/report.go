@@ -171,6 +171,9 @@ func WriteReport(allFindings []core.Finding, reportFile string, stats *core.Stat
 						fmt.Sprintf("│   Confidence : %d%%", item.Confidence),
 						fmt.Sprintf("│   Match      : %s", match),
 					)
+					if item.Validated {
+						lines = append(lines, fmt.Sprintf("│   Validation : [VERIFIED LIVE] %s", item.ValidationInfo))
+					}
 					if item.DecodedMatch != "" {
 						decoded := item.DecodedMatch
 						if len(decoded) > 150 {
@@ -228,5 +231,8 @@ func writeJSONReport(findings []core.Finding, reportFile string, stats *core.Sta
 	if err == nil {
 		os.WriteFile(reportFile, data, 0644)
 		core.Logf("  %s[OK]%s json        %s%s%s\n", core.GREEN, core.RESET, core.BOLD, reportFile, core.RESET)
+		if core.GlobalConfig.JSONOutput {
+			fmt.Println(string(data))
+		}
 	}
 }

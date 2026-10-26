@@ -19,11 +19,11 @@ import (
 	"time"
 )
 
-// requiredTools lists all external CLI tools that siphon-go depends on.
+// requiredTools lists all essential external CLI tools that siphon-go depends on.
 var requiredTools = []string{
-	"katana", "gau", "hakrawler", "waybackurls", "subjs",
-	"nuclei", "trufflehog", "gitleaks", "jsluice", "cariddi",
-	"httpx", "mantra",
+	"katana", "gau", "hakrawler", "waybackurls",
+	"nuclei", "trufflehog", "gitleaks", "jsluice",
+	"httpx",
 }
 
 // checkAIAccess sends a test request to the OpenAI API to verify the API key is valid.
@@ -82,6 +82,14 @@ func CheckDependencies() {
 		rows = append(rows, []string{"[+]", "AI (AI_API_KEY)", "ok"})
 	}
 
+	if core.GlobalConfig.Silent {
+		if len(missing) > 0 {
+			core.PrintError(fmt.Sprintf("Required tools missing: %s", strings.Join(missing, ", ")))
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Print the status table
 	fmt.Println()
 	for _, r := range rows {
@@ -128,6 +136,15 @@ func main() {
 	fileReport := flag.String("file", "", "Path to a previously generated report file (TXT or JSON) for AI analysis")
 	aiAuto := flag.Bool("ai", false, "Enable AI analysis (non-interactive)")
 	
+	// New features: proxy, scope, silent, json, validate, rate-limit, delay
+	proxyFlag := flag.String("proxy", "", "HTTP/SOCKS5 proxy URL (e.g. http://127.0.0.1:8080)")
+	scopeFlag := flag.String("scope", "", "Scope filter for URLs/domains (e.g. *.target.com or target.com)")
+	silentFlag := flag.Bool("silent", false, "Silent mode (suppress banners and progress output)")
+	jsonFlag := flag.Bool("json", false, "Output results in JSON format")
+	validateFlag := flag.Bool("validate", false, "Actively verify discovered secrets (GitHub, Slack, Stripe, Google, SendGrid, NPM)")
+	rateLimitFlag := flag.Int("rate-limit", 0, "Max requests per second (0 = unlimited)")
+	delayFlag := flag.Int("delay", 0, "Delay in milliseconds between HTTP requests")
+	
 	var customHeaders core.HeaderSlice
 	flag.Var(&customHeaders, "H", "Custom HTTP header (can be used multiple times, e.g. -H 'Authorization: Bearer ...' -H 'Cookie: ...')")
 	flag.Var(&customHeaders, "header", "Alias for -H")
@@ -137,14 +154,15 @@ func main() {
 		core.PrintBanner()
 		fmt.Fprintf(os.Stderr, "  %sDescription:%s\n", core.BOLD, core.RESET)
 		fmt.Fprintf(os.Stderr, "  Siphon is an advanced JS harvester and secret scanner.\n")
-		fmt.Fprintf(os.Stderr, "  14 scan engines find hidden secrets with ultra precision.\n\n")
+		fmt.Fprintf(os.Stderr, "  Multi-engine scanner with active secret validation.\n\n")
 		
 		fmt.Fprintf(os.Stderr, "  %sUsage:%s\n", core.BOLD, core.RESET)
 		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "    %s -s subdomains.txt -o results -t 50\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results -validate -proxy http://127.0.0.1:8080\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "    %s -s subdomains.txt -o results -scope *.example.com -t 50\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "    %s -url https://example.com/app.js -o results\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results -H \"Cookie: session=xyz\"\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results -cookie \"idToken=...; accessToken=...\"\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results -cookie \"idToken=...; accessToken=...\"\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results -silent -json\n\n", os.Args[0])
 		
 		fmt.Fprintf(os.Stderr, "  %sFlags:%s\n", core.BOLD, core.RESET)
 		flag.PrintDefaults()
@@ -161,6 +179,23 @@ func main() {
 			cookieVal = "Cookie: " + cookieVal
 		}
 		customHeaders = append(customHeaders, cookieVal)
+	}
+
+	core.GlobalConfig = core.Config{
+		Insecure:   *insecure,
+		Threads:    *threads,
+		Headers:    customHeaders,
+		Proxy:      *proxyFlag,
+		Scope:      *scopeFlag,
+		Silent:     *silentFlag,
+		JSONOutput: *jsonFlag,
+		Validate:   *validateFlag,
+		RateLimit:  *rateLimitFlag,
+		Delay:      *delayFlag,
+	}
+
+	if core.GlobalConfig.Scope == "" && *domain != "" {
+		core.GlobalConfig.Scope = *domain
 	}
 
 	if *fileReport == "" && *outDir == "" || (*domain == "" && *subs == "" && *jsUrl == "" && *pathFilter == "" && *fileReport == "") {
@@ -211,14 +246,17 @@ func main() {
 		core.PrintWarning("--insecure active — TLS certificate errors will be ignored")
 	}
 
-	core.GlobalConfig = core.Config{
-		Insecure: *insecure,
-		Threads:  *threads,
-		Headers:  customHeaders,
-	}
-
 	if len(customHeaders) > 0 {
 		core.Logf("  %s[AUTH]%s %d custom header(s) loaded\n", core.GREEN, core.RESET, len(customHeaders))
+	}
+	if core.GlobalConfig.Proxy != "" {
+		core.Logf("  %s[PROXY]%s Routing traffic through %s\n", core.CYAN, core.RESET, core.GlobalConfig.Proxy)
+	}
+	if core.GlobalConfig.Scope != "" {
+		core.Logf("  %s[SCOPE]%s Scope filter enforced: %s\n", core.CYAN, core.RESET, core.GlobalConfig.Scope)
+	}
+	if core.GlobalConfig.Validate {
+		core.Logf("  %s[VALIDATE]%s Live secret verification active\n", core.MAGENTA, core.RESET)
 	}
 
 	dirs := map[string]string{
@@ -415,6 +453,9 @@ func main() {
 			wg.Wait()
 
 			allUrls = core.Dedup(allUrls)
+			if core.GlobalConfig.Scope != "" {
+				allUrls = core.FilterInScope(allUrls, core.GlobalConfig.Scope)
+			}
 			os.WriteFile(urlsFile, []byte(strings.Join(allUrls, "\n")+"\n"), 0644)
 			core.PrintResult("", "unique urls", len(allUrls), "")
 		}
@@ -489,6 +530,9 @@ func main() {
 		jsSet = append(jsSet, sourceMaps...)
 
 		jsAll = core.Dedup(jsSet)
+		if core.GlobalConfig.Scope != "" {
+			jsAll = core.FilterInScope(jsAll, core.GlobalConfig.Scope)
+		}
 		jsCustom = downloader.FilterJS(jsAll)
 
 		os.WriteFile(filepath.Join(dirs["js"], "js_urls.txt"), []byte(strings.Join(jsAll, "\n")+"\n"), 0644)
@@ -525,7 +569,25 @@ func main() {
 
 	scanner.CheckGitExposure(live, dirs["git"], *threads)
 
-	core.PrintScanEngineStart(15)
+	// Count engines dynamically
+	engineCount := 11
+	hasCariddi := false
+	hasSubjs := false
+	hasMantra := false
+	if _, err := exec.LookPath("cariddi"); err == nil {
+		hasCariddi = true
+		engineCount++
+	}
+	if _, err := exec.LookPath("subjs"); err == nil {
+		hasSubjs = true
+		engineCount++
+	}
+	if _, err := exec.LookPath("mantra"); err == nil {
+		hasMantra = true
+		engineCount++
+	}
+
+	core.PrintScanEngineStart(engineCount)
 	core.PrintSection(6, 6, "Secret Scanning")
 
 	var allFindings []core.Finding
@@ -552,9 +614,17 @@ func main() {
 	runScanner("Trufflehog", func() []core.Finding { return scanner.ScanTrufflehog(dirs["dl"], dirs["raw"], logDir) })
 	runScanner("Gitleaks", func() []core.Finding { return scanner.ScanGitleaks(dirs["dl"], dirs["raw"], logDir) })
 	runScanner("Jsluice", func() []core.Finding { return scanner.ScanJsluice(dlMap, dirs["raw"], logDir) })
-	runScanner("Cariddi", func() []core.Finding { return scanner.ScanCariddi(dlMap, dirs["raw"], logDir) })
-	runScanner("Subjs", func() []core.Finding { return scanner.ScanSubjs(dlMap, dirs["raw"], logDir) })
 	runScanner("Nuclei", func() []core.Finding { return scanner.ScanNuclei(targets, dirs["raw"], logDir) })
+
+	if hasCariddi {
+		runScanner("Cariddi", func() []core.Finding { return scanner.ScanCariddi(dlMap, dirs["raw"], logDir) })
+	}
+	if hasSubjs {
+		runScanner("Subjs", func() []core.Finding { return scanner.ScanSubjs(dlMap, dirs["raw"], logDir) })
+	}
+	if hasMantra {
+		runScanner("Mantra", func() []core.Finding { return scanner.ScanMantra(dlMap, dirs["raw"], logDir) })
+	}
 
 	// ── New Native Engines ────────────────────────────────────────────────
 	runScanner("Entropy", func() []core.Finding { return scanner.ScanEntropy(dlMap) })
@@ -562,7 +632,6 @@ func main() {
 	runScanner("InlineAssign", func() []core.Finding { return scanner.ScanInlineAssign(dlMap) })
 	runScanner("SourceMaps", func() []core.Finding { return scanner.ScanSourceMaps(dlMap, dirs["raw"]) })
 	runScanner("ConfigLeaks", func() []core.Finding { return scanner.ScanConfigLeaks(live, dlMap, dirs["raw"]) })
-	runScanner("Mantra", func() []core.Finding { return scanner.ScanMantra(dlMap, dirs["raw"], logDir) })
 	runScanner("InterestingPaths", func() []core.Finding { return scanner.ScanInterestingPaths(dlMap) })
 
 	wg.Wait()
@@ -578,6 +647,11 @@ func main() {
 		if origURL, ok := reverseMap[fFile]; ok {
 			allFindings[i].URL = origURL
 		}
+	}
+
+	// Live Secret Verification Engine
+	if core.GlobalConfig.Validate {
+		allFindings = scanner.ValidateFindings(allFindings)
 	}
 
 	// Secret Scanning old log removed; PrintFinalStats will show the final stats.
@@ -602,7 +676,7 @@ func main() {
 	if *aiAuto {
 		aiOutputPath := filepath.Join(dirs["secrets"], "ai_summary.txt")
 		core.AnalyzeReportWithAI(allFindings, aiOutputPath)
-	} else {
+	} else if !core.GlobalConfig.Silent {
 		fmt.Println()
 		core.PrintWarning("WARNING: Analyzing the report with AI will send the found secrets to AI servers!")
 		fmt.Printf("  [?] Do you still want to analyze with AI? (y/N): ")
