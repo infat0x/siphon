@@ -2,6 +2,7 @@ package core
 
 import (
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // ANSI Colors
@@ -129,4 +131,122 @@ func ApplyCustomHeaders(req *http.Request) {
 			req.Header.Set(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
 		}
 	}
+}
+
+// CheckAuthStatus probes targetURL with the configured custom headers.
+// It returns (true, statusText) when authenticated, or (false, statusText) when unauthenticated.
+func CheckAuthStatus(targetURL string) (bool, string) {
+	if len(GlobalConfig.Headers) == 0 {
+		return false, "UNAUTH (no credentials)"
+	}
+	if strings.TrimSpace(targetURL) == "" {
+		return false, "UNAUTH (no target)"
+	}
+
+	targetURL = NormaliseHost(targetURL)
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: GlobalConfig.Insecure,
+		},
+	}
+
+	var redirectedToLogin bool
+
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   7 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return http.ErrUseLastResponse
+			}
+			loc := strings.ToLower(req.URL.String())
+			if strings.Contains(loc, "login") ||
+				strings.Contains(loc, "signin") ||
+				strings.Contains(loc, "sign-in") ||
+				strings.Contains(loc, "oauth") ||
+				strings.Contains(loc, "auth.") ||
+				strings.Contains(loc, "cognito") ||
+				strings.Contains(loc, "okta") ||
+				strings.Contains(loc, "/auth/") {
+				redirectedToLogin = true
+				return http.ErrUseLastResponse
+			}
+			ApplyCustomHeaders(req)
+			return nil
+		},
+	}
+
+	req, err := http.NewRequest("GET", targetURL, nil)
+	if err != nil {
+		return false, fmt.Sprintf("UNAUTH (error: %v)", err)
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	ApplyCustomHeaders(req)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		// Fallback to HTTP if HTTPS failed
+		if strings.HasPrefix(targetURL, "https://") {
+			httpURL := "http://" + strings.TrimPrefix(targetURL, "https://")
+			if reqHTTP, errHTTP := http.NewRequest("GET", httpURL, nil); errHTTP == nil {
+				reqHTTP.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+				reqHTTP.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+				ApplyCustomHeaders(reqHTTP)
+				if respHTTP, errHTTPResp := client.Do(reqHTTP); errHTTPResp == nil {
+					resp = respHTTP
+					err = nil
+				}
+			}
+		}
+		if err != nil {
+			return false, "UNAUTH (connection failed)"
+		}
+	}
+	defer resp.Body.Close()
+
+	if redirectedToLogin {
+		return false, "UNAUTH (redirected to login)"
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return false, "UNAUTH (HTTP 401 Unauthorized)"
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return false, "UNAUTH (HTTP 403 Forbidden)"
+	}
+
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		loc := strings.ToLower(resp.Header.Get("Location"))
+		if strings.Contains(loc, "login") ||
+			strings.Contains(loc, "signin") ||
+			strings.Contains(loc, "sign-in") ||
+			strings.Contains(loc, "oauth") ||
+			strings.Contains(loc, "auth.") ||
+			strings.Contains(loc, "cognito") ||
+			strings.Contains(loc, "okta") ||
+			strings.Contains(loc, "/auth/") {
+			return false, "UNAUTH (redirected to login)"
+		}
+	}
+
+	buf := make([]byte, 2048)
+	n, _ := resp.Body.Read(buf)
+	bodySnippet := strings.ToLower(string(buf[:n]))
+
+	if strings.Contains(bodySnippet, "<title>sign in</title>") ||
+		strings.Contains(bodySnippet, "<title>login</title>") ||
+		strings.Contains(bodySnippet, "<title>log in</title>") ||
+		strings.Contains(bodySnippet, "action=\"/login") ||
+		strings.Contains(bodySnippet, "action=\"/signin") {
+		return false, "UNAUTH (login page detected)"
+	}
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		return true, fmt.Sprintf("AUTH (HTTP %d OK)", resp.StatusCode)
+	}
+
+	return false, fmt.Sprintf("UNAUTH (HTTP %d)", resp.StatusCode)
 }

@@ -69,6 +69,16 @@ func PrintResult(icon string, label string, value interface{}, valueColor string
 		valueColor, BOLD, value, RESET)
 }
 
+// PrintAuthStatus probes targetURL and prints AUTH (green) or UNAUTH (red).
+func PrintAuthStatus(targetURL string) {
+	isAuth, statusText := CheckAuthStatus(targetURL)
+	if isAuth {
+		PrintResult("", "auth", statusText, GREEN)
+	} else {
+		PrintResult("", "auth", statusText, RED)
+	}
+}
+
 // PrintSuccess prints a completion message.
 func PrintSuccess(msg string) {
 	fmt.Printf("  %s%s[OK]%s %s\n", cGreen, BOLD, RESET, msg)

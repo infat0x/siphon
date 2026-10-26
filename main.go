@@ -257,6 +257,7 @@ func main() {
 		urlStr := core.NormaliseHost(*jsUrl)
 		core.PrintResult("", "mode", "single-url", "")
 		core.PrintResult("", "target", urlStr, "")
+		core.PrintAuthStatus(urlStr)
 		
 		jsAll = []string{urlStr}
 		jsCustom = []string{urlStr}
@@ -283,6 +284,11 @@ func main() {
 			subsList = []string{domainUrl}
 			core.PrintResult("", "mode", "single-domain", "")
 			core.PrintResult("", "target", domainUrl, "")
+			targetToCheck := domainUrl
+			if *pathFilter != "" && strings.HasPrefix(*pathFilter, "/") {
+				targetToCheck = domainUrl + *pathFilter
+			}
+			core.PrintAuthStatus(targetToCheck)
 		} else if *pathFilter != "" && strings.HasPrefix(*pathFilter, "http") {
 			// Extract domain from URL provided in pathFilter to run scan
 			singleDomain = true
@@ -299,6 +305,7 @@ func main() {
 			subsList = []string{domainUrl}
 			core.PrintResult("", "mode", "single-domain (extracted)", "")
 			core.PrintResult("", "target", domainUrl, "")
+			core.PrintAuthStatus(*pathFilter)
 		} else if *subs != "" {
 			data, err := os.ReadFile(*subs)
 			if err != nil {
@@ -312,6 +319,11 @@ func main() {
 				}
 			}
 			core.PrintResult("", "loaded hosts", len(subsList), "")
+			if len(subsList) > 0 {
+				core.PrintAuthStatus(subsList[0])
+			} else {
+				core.PrintAuthStatus("")
+			}
 		}
 
 		// 1. Live Hosts
