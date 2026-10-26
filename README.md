@@ -95,7 +95,7 @@ tar -xzf gitleaks_8.24.3_linux_x64.tar.gz && mv gitleaks /usr/local/bin/
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/siphon.git
+git clone https://github.com/infat0x/siphon.git
 cd siphon
 
 # Build the binary
