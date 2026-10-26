@@ -2,7 +2,7 @@ package scanner
 
 import "strings"
 
-var FalsePositiveRe = `(?i)(application/(json|xml|javascript|x-www-form-urlencoded|octet-stream|pdf|zip)|text/(html|plain|xml|javascript|css)|image/(png|jpeg|gif|svg\+xml|webp|avif)|audio/(mp3|wav|ogg)|video/(mp4|webm)|multipart/form-data|charset|utf-8|utf-16|iso-8859|content-type|content-length|content-encoding|accept-encoding|accept-language|cache-control|border-[a-z]+|background-[a-z]+|font-[a-z]+|box-shadow|text-align|text-decoration|text-transform|margin-[a-z]+|padding-[a-z]+|display:\s*(none|block|inline|flex|grid)|position:\s*(absolute|relative|fixed|sticky)|overflow:\s*(hidden|auto|scroll)|z-index|opacity|transform|transition|animation|cursor:\s*pointer|visibility|float:\s*(left|right)|clear:\s*(both|left|right)|vertical-align|line-height|letter-spacing|word-spacing|white-space|list-style|border-radius|box-sizing|flex-direction|justify-content|align-items|grid-template|media\s*\(|@keyframes|@import|@font-face|index\.js|main\.js|vendor\.js|app\.js|bundle\.js|chunk\.js|runtime\.js|polyfill|webpack|sourceMappingURL|sourceURL|/api/v\d+/|/oauth/token|/auth/login|/users/|/products/|/api/public|/static/|/assets/|/media/|/images/|/fonts/|/css/|/js/|node_modules|jquery|bootstrap|angular|react|vue|moment|lodash|underscore|backbone|ember|svelte|solid|preact|next|nuxt|gatsby|remix|tailwind|bulma|materialize|foundation|semantic-ui|antd|chakra|mantine|radix|headless|heroicons|lucide|phosphor|fontawesome|ionicons|material-icons|modernizr|normalize|animate\.css|scrollreveal|aos|gsap|three\.js|d3\.js|chart\.js|pixi|phaser|babylon|socket\.io|axios|fetch|superagent|got|request|express|fastify|koa|hapi|nestjs|graphql|prisma|sequelize|typeorm|mongoose|knex|passport|bcrypt|jsonwebtoken|cors|helmet|morgan|winston|pino|dayjs|luxon|date-fns|uuid|nanoid|slugify|validator|joi|yup|zod|formik|react-hook-form|redux|mobx|zustand|jotai|recoil|valtio|tanstack|swr|react-query|framer-motion|spring|playwright|cypress|jest|mocha|chai|vitest|storybook|chromatic|babel|esbuild|rollup|vite|parcel|turbopack|swc|terser|postcss|autoprefixer|sass|less|stylus|tailwindcss|localhost|127\.0\.0\.1|0\.0\.0\.0|example\.com|test\.com|placeholder|lorem|ipsum|dolor|amet|hello|world|foo|bar|baz|qux|sample|demo|dummy|mock|fixture|stub|spec|_test|_spec|__test__|__mock__|undefined|null|true|false|NaN|Infinity|Object|Array|String|Number|Boolean|Function|Symbol|BigInt|Map|Set|WeakMap|WeakSet|Promise|Proxy|Reflect|Math\.|Date\.|JSON\.|RegExp|Error|TypeError|RangeError|SyntaxError|ReferenceError|console\.|document\.|window\.|navigator\.|location\.|history\.|screen\.|performance\.|addEventListener|removeEventListener|querySelector|getElementById|getElementsBy|createElement|appendChild|removeChild|innerHTML|textContent|className|classList|setAttribute|getAttribute|style\.|prototype\.|constructor|__proto__|hasOwnProperty|toString|valueOf|length|push|pop|shift|unshift|splice|slice|concat|join|map|filter|reduce|forEach|find|findIndex|includes|indexOf|sort|reverse|every|some|flat|flatMap|keys|values|entries|from|isArray|assign|create|freeze|seal|defineProperty|getOwnPropertyNames|getPrototypeOf|setPrototypeOf|is|parse|stringify|parseInt|parseFloat|isNaN|isFinite|encodeURI|decodeURI|encodeURIComponent|decodeURIComponent|setTimeout|setInterval|clearTimeout|clearInterval|requestAnimationFrame|cancelAnimationFrame|fetch|XMLHttpRequest|WebSocket|EventSource|FormData|URLSearchParams|AbortController|TextEncoder|TextDecoder|Blob|File|FileReader|Response|Request|Headers|URL|atob|btoa)`
+var FalsePositiveRe = `(?i)(application/(json|xml|javascript|x-www-form-urlencoded|octet-stream|pdf|zip)|text/(html|plain|xml|javascript|css)|image/(png|jpeg|gif|svg\+xml|webp|avif)|audio/(mp3|wav|ogg)|video/(mp4|webm)|multipart/form-data|charset|utf-8|utf-16|iso-8859|content-type|content-length|content-encoding|accept-encoding|accept-language|cache-control|border-[a-z]+|background-[a-z]+|font-[a-z]+|box-shadow|text-align|text-decoration|text-transform|margin-[a-z]+|padding-[a-z]+|display:\s*(none|block|inline|flex|grid)|position:\s*(absolute|relative|fixed|sticky)|overflow:\s*(hidden|auto|scroll)|z-index|opacity|transform|transition|animation|cursor:\s*pointer|visibility|float:\s*(left|right)|clear:\s*(both|left|right)|vertical-align|line-height|letter-spacing|word-spacing|white-space|list-style|border-radius|box-sizing|flex-direction|justify-content|align-items|grid-template|media\s*\(|@keyframes|@import|@font-face|index\.js|main\.js|vendor\.js|app\.js|bundle\.js|chunk\.js|runtime\.js|polyfill|webpack|sourceMappingURL|sourceURL|/api/v\d+/|/oauth/token|/auth/login|/users/|/products/|/api/public|/static/|/assets/|/media/|/images/|/fonts/|/css/|/js/|node_modules|jquery|bootstrap|angular|react|vue|moment|lodash|underscore|backbone|ember|svelte|solid|preact|next|nuxt|gatsby|remix|tailwind|bulma|materialize|foundation|semantic-ui|antd|chakra|mantine|radix|headless|heroicons|lucide|phosphor|fontawesome|ionicons|material-icons|modernizr|normalize|animate\.css|scrollreveal|aos|gsap|three\.js|d3\.js|chart\.js|pixi|phaser|babylon|socket\.io|axios|fetch|superagent|got|request|express|fastify|koa|hapi|nestjs|graphql|prisma|sequelize|typeorm|mongoose|knex|passport|bcrypt|jsonwebtoken|cors|helmet|morgan|winston|pino|dayjs|luxon|date-fns|uuid|nanoid|slugify|validator|joi|yup|zod|formik|react-hook-form|redux|mobx|zustand|jotai|recoil|valtio|tanstack|swr|react-query|framer-motion|spring|playwright|cypress|jest|mocha|chai|vitest|storybook|chromatic|babel|esbuild|rollup|vite|parcel|turbopack|swc|terser|postcss|autoprefixer|sass|less|stylus|tailwindcss|localhost|127\.0\.0\.1|0\.0\.0\.0|example\.com|test\.com|placeholder|lorem|ipsum|dolor|amet|hello|world|foo|bar|baz|qux|sample|demo|dummy|mock|fixture|stub|spec|_test|_spec|__test__|__mock__|undefined|null|true|false|NaN|Infinity|Object|Array|String|Number|Boolean|Function|Symbol|BigInt|Map|Set|WeakMap|WeakSet|Promise|Proxy|Reflect|Math\.|Date\.|JSON\.|RegExp|Error|TypeError|RangeError|SyntaxError|ReferenceError|console\.|document\.|window\.|navigator\.|location\.|history\.|screen\.|performance\.|addEventListener|removeEventListener|querySelector|getElementById|getElementsBy|createElement|appendChild|removeChild|innerHTML|textContent|className|classList|setAttribute|getAttribute|style\.|prototype\.|constructor|__proto__|hasOwnProperty|toString|valueOf|length|push|pop|shift|unshift|splice|slice|concat|join|map|filter|reduce|forEach|find|findIndex|includes|indexOf|sort|reverse|every|some|flat|flatMap|keys|values|entries|from|isArray|assign|create|freeze|seal|defineProperty|getOwnPropertyNames|getPrototypeOf|setPrototypeOf|is|parse|stringify|parseInt|parseFloat|isNaN|isFinite|encodeURI|decodeURI|encodeURIComponent|decodeURIComponent|setTimeout|setInterval|clearTimeout|clearInterval|requestAnimationFrame|cancelAnimationFrame|fetch|XMLHttpRequest|WebSocket|EventSource|FormData|URLSearchParams|AbortController|TextEncoder|TextDecoder|Blob|File|FileReader|Response|Request|Headers|URL|same-origin|use-credentials|navigationmenu|recharts|alertdialog|atob|btoa)`
 
 var SecretPatterns = map[string]string{
 	// ── Original patterns ─────────────────────────────────────────────────────
@@ -54,8 +54,9 @@ var SecretPatterns = map[string]string{
 	"AWS SQS URL Leak":         `https://sqs\.[a-z0-9-]+\.amazonaws\.com/[0-9]{12}/[A-Za-z0-9_-]+`,
 	"AWS Lambda ARN":           `arn:aws:lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9_-]+`,
 	"AWS DynamoDB Table":       `arn:aws:dynamodb:[a-z0-9-]+:[0-9]{12}:table/[A-Za-z0-9_-]+`,
-	"AWS Cognito Pool":         `[a-z]{2}-[a-z]+-[0-9]_[A-Za-z0-9]{9}`,
-	"AWS Cognito Client ID":    `(?i)cognito.{0,20}client.{0,10}[:=]\s*['"][0-9a-z]{26}['"]`,
+	"AWS Cognito Pool":          `[a-z]{2}-[a-z]+-[0-9]_[A-Za-z0-9]{9}`,
+	"AWS Cognito Identity Pool": `[a-z]{2}-[a-z]+-[0-9]:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`,
+	"AWS Cognito Client ID":     `(?i)cognito.{0,20}client.{0,10}[:=]\s*['"][0-9a-z]{26}['"]`,
 	"GCP Service Account JSON": `(?i)"type":\s*"service_account"`,
 	"GCP API Key":              `AIza[0-9A-Za-z\-_]{35}`,
 	"GCP OAuth Client ID":      `[0-9]+-[0-9A-Za-z_]{32}\.apps\.googleusercontent\.com`,
@@ -367,17 +368,9 @@ var SecretPatterns = map[string]string{
 	"AZ Phone Number":        `(?i)(phone|tel|mobile).{0,10}[:=]\s*['"](\+994|0)[0-9]{9}['"]`,
 
 	// ── Mazen160 secrets-patterns-db ──────────────────────────────────────────
-	"test": `test`,
-	"generic password": `password.+`,
-	"Generic secret": `secret.+`,
-	"Generic token": `token.+`,
-	"Generic key": `(private|public|api|secret|password|pass|passphrase|access).+(key|token|secret).+`,
-	"Generic webhook secret": `(webhook).+(secret|token|key).+`,
-	"ADMIN_PASSWORD": `(admin).+(secret|token|key).+`,
-	"Bearer token": `(bearer).+`,
-	"Basic token": `basic [a-zA-Z0-9_\-:\.=]+`,
-	"REDIS_URL": `(REDIS_URL).+`,
-	"master_password": `(master_password).+`,
+	"Bearer token": `(?i)\bbearer\s+[a-zA-Z0-9_\-\.]{25,}\b`,
+	"Basic token": `(?i)\bbasic\s+[a-zA-Z0-9_\-:\.=]{20,}\b`,
+	"REDIS_URL": `(?i)redis://[a-zA-Z0-9_]+:[^@\s]+@[a-zA-Z0-9_\-\.]+:\d+`,
 	"generic credit card": `^(?:4[0-9]{12}(?:[0-9]{3})?|[25][1-7][0-9]{14}|6(?:011|5[0-9][0-9])[0-9]{12}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|(?:2131|1800|35\d{3})\d{11})`,
 	"AWS client ID": `(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}`,
 	"AWS MWS ID": `mzn\.mws\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`,
@@ -658,8 +651,6 @@ var SecretPatterns = map[string]string{
 	"docker_token": `docker[_-]?token(=| =|:| :)`,
 	"dockerhub_password": `dockerhub[_-]?password(=| =|:| :)`,
 	"dockerhubpassword": `dockerhubpassword(=| =|:| :)`,
-	"domain": `http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*(),]|(?:%[0-9a-fA-F][0-9a-fA-F]))[^><'" 
-)]+`,
 	"doordash_auth_token": `doordash[_-]?auth[_-]?token(=| =|:| :)`,
 	"dropbox_oauth_bearer": `dropbox[_-]?oauth[_-]?bearer(=| =|:| :)`,
 	"droplet_travis_password": `droplet[_-]?travis[_-]?password(=| =|:| :)`,

@@ -181,8 +181,13 @@ func scoreInlineAssignment(varName, value string) (int, string) {
 			severity = "HIGH"
 		}
 	} else {
-		// Generic variable, only flag if value looks very secret-like
-		confidence += 5
+		// Generic variable (e.g. "weekdays", "rT", "xs", "f4", "children")
+		// ONLY flag if the value is an actual recognizable secret or token
+		if !hasKnownSecretPrefix(value) && !jwtTokenRe.MatchString(value) && !(strings.Contains(value, "://") && strings.Contains(value, "@")) {
+			return 0, "INFO"
+		}
+		confidence += 30
+		severity = "HIGH"
 	}
 
 	// Value scoring
@@ -241,6 +246,7 @@ func isObviouslyNotSecret(val string) bool {
 		"utf-8", "utf8", "ascii", "iso-8859",
 		"application/json", "text/html", "text/plain",
 		"GET", "POST", "PUT", "DELETE", "PATCH",
+		"same-origin", "include", "omit", "use-credentials", "anonymous", "cross-origin",
 	}
 	for _, ns := range nonSecrets {
 		if lower == ns || lower == strings.ToLower(ns) {
@@ -258,7 +264,10 @@ func isObviouslyNotSecret(val string) bool {
 		return true
 	}
 
-	// Looks like a CSS property
+	// Looks like a CSS property or SVG path
+	if isCSSOrStyleValue(val) || IsSVGPath(val) {
+		return true
+	}
 	if regexp.MustCompile(`(?i)^(#[0-9a-f]{3,8}|rgba?\(|hsla?\(|\d+px|\d+em|\d+rem|\d+%|auto|inherit|initial|none|block|inline|flex|grid)$`).MatchString(val) {
 		return true
 	}

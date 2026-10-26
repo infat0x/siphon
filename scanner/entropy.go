@@ -83,6 +83,12 @@ func ScanEntropy(dlMap map[string]string) []core.Finding {
 					continue
 				}
 
+				// Secrets never contain JavaScript syntax / code symbols.
+				// This eliminates minified code matched between non-adjacent quotes.
+				if strings.ContainsAny(value, ",;{}()[]=>\\<>*`$") {
+					continue
+				}
+
 				// Skip CSS style declarations, selectors, colors, and SVG paths
 				if isCSSOrStyleValue(value) || IsSVGPath(value) {
 					continue
@@ -448,7 +454,9 @@ func isCSSOrStyleValue(s string) bool {
 		strings.Contains(s, "data-") || strings.Contains(s, "aria-") ||
 		strings.Contains(s, "[&_") || strings.Contains(s, "[a&]") ||
 		strings.Contains(s, "pointer-events-") || strings.Contains(s, "whitespace-") ||
-		strings.Contains(s, "overflow-") {
+		strings.Contains(s, "overflow-") || strings.Contains(s, "max-[") ||
+		strings.Contains(s, "min-[") || strings.Contains(s, "has-[") ||
+		strings.Contains(s, "backdrop-") || strings.Contains(s, "sticky") {
 		return true
 	}
 	if IsHexColor(s) {

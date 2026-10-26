@@ -47,7 +47,7 @@ var severityMap = map[string]string{
 	"Firebase URL": "HIGH", "GCP Service Account JSON": "HIGH",
 	"AWS Session Token": "HIGH", "Azure Client Secret": "HIGH",
 	"Mapbox Secret Token": "HIGH", "Password in URL": "HIGH",
-	"Extended JWT Token": "HIGH",
+	"Extended JWT Token": "HIGH", "AWS Cognito Identity Pool": "HIGH",
 	"AZ CBS/Core Banking": "HIGH", "AZ SWIFT Gateway": "HIGH",
 
 	// MEDIUM
@@ -198,6 +198,14 @@ func ScanRegex(dlMap map[string]string) []core.Finding {
 				secretVal := content[m[4]:m[5]]
 
 				if len(secretVal) < 4 || falsePosRe.MatchString(secretVal) {
+					continue
+				}
+
+				// Skip if value has syntax characters (e.g. minified code after escaped quote) or browser defaults
+				lowerVal := strings.ToLower(secretVal)
+				if strings.ContainsAny(secretVal, ",;{}()[]=>\\`") || strings.HasPrefix(secretVal, "\"") ||
+					lowerVal == "same-origin" || lowerVal == "include" || lowerVal == "omit" ||
+					lowerVal == "use-credentials" || lowerVal == "anonymous" {
 					continue
 				}
 

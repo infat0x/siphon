@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"regexp"
 	"siphon-go/core"
 	"siphon-go/downloader"
@@ -223,5 +224,61 @@ func TestParallelTracker(t *testing.T) {
 	}
 	if results["TaskB"] != 5 {
 		t.Errorf("Expected TaskB to have 5 items, got %d", results["TaskB"])
+	}
+}
+
+func TestCognitoAndFalsePositiveElimination(t *testing.T) {
+	// 1. Verify Cognito Identity Pool pattern matches valid identity pool
+	dlMap := make(map[string]string)
+	tmpFile := t.TempDir() + "/test_sample.js"
+	jsContent := `
+		const poolId = "us-east-2:6f1b3c9b-1234-5678-90ab-cdef12345678";
+		const creds = "credentials: \"same-origin\"";
+		const weekdays = "Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday";
+		const rT = "AlertDialogDescription";
+		const codeSnippet = ",PAYPAL_CAPTURE_ORDER:t=>'/paypal/orders/' + t + '/capture',PAYPAL_UPDATE_FUNDING:";
+		const realApiKey = "AIzaSyD1234567890123456789012345678901";
+	`
+	if err := os.WriteFile(tmpFile, []byte(jsContent), 0644); err != nil {
+		t.Fatalf("failed to write tmp file: %v", err)
+	}
+	dlMap["https://example.com/test.js"] = tmpFile
+
+	// Test Regex Scanner
+	regexFindings := scanner.ScanRegex(dlMap)
+	foundCognito := false
+	foundSameOrigin := false
+	for _, f := range regexFindings {
+		if f.Type == "AWS Cognito Identity Pool" {
+			foundCognito = true
+		}
+		if strings.Contains(f.Match, "same-origin") {
+			foundSameOrigin = true
+		}
+		if f.Type == "domain" {
+			t.Errorf("domain pattern should not be in SecretPatterns")
+		}
+	}
+	if !foundCognito {
+		t.Errorf("Expected AWS Cognito Identity Pool to be detected in regex findings")
+	}
+	if foundSameOrigin {
+		t.Errorf("same-origin should NOT be detected as a banking keyword secret")
+	}
+
+	// Test Inline Scanner
+	inlineFindings := scanner.ScanInlineAssign(dlMap)
+	for _, f := range inlineFindings {
+		if strings.Contains(f.Match, "weekdays") || strings.Contains(f.Match, "rT") {
+			t.Errorf("Generic UI variables weekdays/rT should NOT be flagged: %s", f.Match)
+		}
+	}
+
+	// Test Entropy Scanner
+	entropyFindings := scanner.ScanEntropy(dlMap)
+	for _, f := range entropyFindings {
+		if strings.Contains(f.Match, "PAYPAL_CAPTURE_ORDER") || strings.Contains(f.Match, "=>") {
+			t.Errorf("Code syntax between strings should NOT be flagged as high entropy: %s", f.Match)
+		}
 	}
 }
