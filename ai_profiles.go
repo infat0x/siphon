@@ -84,20 +84,27 @@ func promptAIProfile(reader *bufio.Reader) (aiProfile, error) {
 	if !term.IsTerminal(fd) {
 		return p, errors.New("AI setup requires a terminal")
 	}
-	fmt.Print("Chat Completions URL [OpenCode Go]: ")
-	endpoint, err := reader.ReadString('\n')
-	if err != nil {
-		return p, err
+	for {
+		fmt.Print("AI provider URL (press Enter for OpenCode Go, or paste a custom HTTPS Chat Completions URL): ")
+		endpoint, err := reader.ReadString('\n')
+		if err != nil {
+			return p, err
+		}
+		p.URL = strings.TrimSpace(endpoint)
+		if p.URL == "" {
+			p.URL = goAIURL
+		}
+		parsed, err := url.Parse(p.URL)
+		if err == nil && parsed.Scheme == "https" && parsed.Hostname() != "" && parsed.User == nil {
+			break
+		}
+		fmt.Println("Enter a valid HTTPS API URL, or leave it blank for OpenCode Go. Enter your model ID at the next prompt.")
 	}
-	p.URL = strings.TrimSpace(endpoint)
-	if p.URL == "" {
-		p.URL = goAIURL
+	if p.URL == goAIURL {
+		fmt.Print("OpenCode Go model ID (e.g. deepseek-v4.1-flash): ")
+	} else {
+		fmt.Print("Model ID from your AI provider: ")
 	}
-	parsed, err := url.Parse(p.URL)
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil {
-		return p, errors.New("enter a valid HTTPS endpoint")
-	}
-	fmt.Print("Model ID: ")
 	model, err := reader.ReadString('\n')
 	if err != nil {
 		return p, err
