@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -129,6 +130,7 @@ Reason: [1 concise sentence on why this is a valid risk]
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
+	SetGoAIHeaders(req)
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
@@ -161,7 +163,7 @@ Reason: [1 concise sentence on why this is a valid risk]
 
 	if len(aiResp.Choices) > 0 {
 		responseMsg := strings.TrimSpace(aiResp.Choices[0].Message.Content)
-		
+
 		if responseMsg == "NO_SECRETS_FOUND" {
 			Logf("  %s[AI]%s No true positive secrets were found. All findings were filtered out as noise.\n", GREEN, RESET)
 			return // Nothing to save or print
@@ -171,7 +173,7 @@ Reason: [1 concise sentence on why this is a valid risk]
 		fmt.Printf("  %s╭─────────────────────────────────────────────────────────────%s\n", MAGENTA, RESET)
 		fmt.Printf("  %s│ %sAI VERIFIED SECRETS%s\n", MAGENTA, BOLD, RESET)
 		fmt.Printf("  %s├─────────────────────────────────────────────────────────────%s\n", MAGENTA, RESET)
-		
+
 		// Print line by line for clean formatting
 		lines := strings.Split(responseMsg, "\n")
 		for _, line := range lines {
@@ -279,6 +281,7 @@ Reason: [1 concise sentence on why this is a valid risk]
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
+	SetGoAIHeaders(req)
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
@@ -311,7 +314,7 @@ Reason: [1 concise sentence on why this is a valid risk]
 
 	if len(aiResp.Choices) > 0 {
 		responseMsg := strings.TrimSpace(aiResp.Choices[0].Message.Content)
-		
+
 		if responseMsg == "NO_SECRETS_FOUND" {
 			Logf("  %s[AI]%s No true positive secrets were found. All findings were filtered out as noise.\n", GREEN, RESET)
 			return
@@ -321,7 +324,7 @@ Reason: [1 concise sentence on why this is a valid risk]
 		fmt.Printf("  %s╭─────────────────────────────────────────────────────────────%s\n", MAGENTA, RESET)
 		fmt.Printf("  %s│ %sAI VERIFIED SECRETS%s\n", MAGENTA, BOLD, RESET)
 		fmt.Printf("  %s├─────────────────────────────────────────────────────────────%s\n", MAGENTA, RESET)
-		
+
 		lines := strings.Split(responseMsg, "\n")
 		for _, line := range lines {
 			fmt.Printf("  %s│%s %s\n", MAGENTA, RESET, line)
@@ -338,5 +341,14 @@ Reason: [1 concise sentence on why this is a valid risk]
 		}
 	} else {
 		Logf("  %s[AI]%s Received empty response from provider.\n", RED, RESET)
+	}
+}
+
+var goAISession = rand.Text()
+
+func SetGoAIHeaders(req *http.Request) {
+	if req.URL.Host == "opencode.ai" && strings.HasPrefix(req.URL.Path, "/inference/go/") {
+		req.Header.Set("User-Agent", "siphon/1.0")
+		req.Header.Set("x-opencode-session", goAISession)
 	}
 }

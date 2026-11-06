@@ -2,18 +2,19 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/joho/godotenv"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"siphon-go/collector"
 	"siphon-go/core"
 	"siphon-go/downloader"
-	"net/url"
 	"siphon-go/scanner"
-	"github.com/joho/godotenv"
 	"sort"
 	"strings"
 	"sync"
@@ -34,25 +35,28 @@ func checkAIAccess(key string) bool {
 		apiURL = "https://api.openai.com/v1/chat/completions"
 	}
 
-	// Send a minimal request. If we get 401, the key is bad. 
-	// If we get 200, 400 (bad format), or 404 (model not found), the API is reachable.
-	body := `{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "test"}], "max_tokens": 1}`
+	model := os.Getenv("AI_MODEL")
+	if model == "" {
+		model = "gpt-4o-mini"
+	}
+	encodedModel, _ := json.Marshal(model)
+	body := `{"model": ` + string(encodedModel) + `, "messages": [{"role": "user", "content": "test"}]}`
 	req, err := http.NewRequest("POST", apiURL, strings.NewReader(body))
 	if err != nil {
 		return false
 	}
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+key)
-	
+
+	core.SetGoAIHeaders(req)
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
-	
-	// 401 and 403 mean the key is definitely invalid or blocked.
-	return resp.StatusCode != 401 && resp.StatusCode != 403
+
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
 // CheckDependencies verifies all required tools are in $PATH.
@@ -74,10 +78,8 @@ func CheckDependencies() {
 	// Check AI
 	apiKey := os.Getenv("AI_API_KEY")
 	if apiKey == "" {
-		missing = append(missing, "AI (AI_API_KEY)")
 		rows = append(rows, []string{"[-]", "AI (AI_API_KEY)", "missing"})
 	} else if !checkAIAccess(apiKey) {
-		missing = append(missing, "AI (Invalid API Key or Unreachable)")
 		rows = append(rows, []string{"[-]", "AI (AI_API_KEY)", "invalid/unreachable"})
 	} else {
 		rows = append(rows, []string{"[+]", "AI (AI_API_KEY)", "ok"})
@@ -99,7 +101,7 @@ func CheckDependencies() {
 	fmt.Println()
 
 	if len(missing) == 0 {
-		core.PrintSuccess("All required tools and AI are ready.")
+		core.PrintSuccess("All required tools are ready.")
 		fmt.Print("  Do you want to continue? [y/N]: ")
 	} else {
 		core.PrintWarning(fmt.Sprintf("The following tools are missing: %s", strings.Join(missing, ", ")))
@@ -123,6 +125,18 @@ func CheckDependencies() {
 // banner is now handled by core.PrintBanner()
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "ai" {
+		action := ""
+		if len(os.Args) == 3 {
+			action = os.Args[2]
+		}
+		if err := manageAI(action, bufio.NewReader(os.Stdin)); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	domain := flag.String("domain", "", "Single domain to scan")
 	subs := flag.String("s", "", "Path to subdomains list")
 	jsUrl := flag.String("url", "", "Single JS file URL to scan directly")
@@ -136,7 +150,7 @@ func main() {
 	pathFilter := flag.String("path", "", "Filter JS URLs by specific path (e.g. /admin/)")
 	fileReport := flag.String("file", "", "Path to a previously generated report file (TXT or JSON) for AI analysis")
 	aiAuto := flag.Bool("ai", false, "Enable AI analysis (non-interactive)")
-	
+
 	// New features: proxy, scope, silent, json, validate, rate-limit, delay
 	proxyFlag := flag.String("proxy", "", "HTTP/SOCKS5 proxy URL (e.g. http://127.0.0.1:8080)")
 	scopeFlag := flag.String("scope", "", "Scope filter for URLs/domains (e.g. *.target.com or target.com)")
@@ -145,18 +159,18 @@ func main() {
 	validateFlag := flag.Bool("validate", false, "Actively verify discovered secrets (GitHub, Slack, Stripe, Google, SendGrid, NPM)")
 	rateLimitFlag := flag.Int("rate-limit", 0, "Max requests per second (0 = unlimited)")
 	delayFlag := flag.Int("delay", 0, "Delay in milliseconds between HTTP requests")
-	
+
 	var customHeaders core.HeaderSlice
 	flag.Var(&customHeaders, "H", "Custom HTTP header (can be used multiple times, e.g. -H 'Authorization: Bearer ...' -H 'Cookie: ...')")
 	flag.Var(&customHeaders, "header", "Alias for -H")
 	cookieFlag := flag.String("cookie", "", "Convenience flag for Cookie header (e.g. -cookie 'idToken=...; accessToken=...')")
-	
+
 	flag.Usage = func() {
 		core.PrintBanner()
 		fmt.Fprintf(os.Stderr, "  %sDescription:%s\n", core.BOLD, core.RESET)
 		fmt.Fprintf(os.Stderr, "  Siphon is an advanced JS harvester and secret scanner.\n")
 		fmt.Fprintf(os.Stderr, "  Multi-engine scanner with active secret validation.\n\n")
-		
+
 		fmt.Fprintf(os.Stderr, "  %sUsage:%s\n", core.BOLD, core.RESET)
 		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results -validate -proxy http://127.0.0.1:8080\n", os.Args[0])
@@ -164,14 +178,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "    %s -url https://example.com/app.js -o results\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results -cookie \"idToken=...; accessToken=...\"\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "    %s -domain example.com -o results -silent -json\n\n", os.Args[0])
-		
+
 		fmt.Fprintf(os.Stderr, "  %sFlags:%s\n", core.BOLD, core.RESET)
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\n  %sAI Analysis Only:%s\n", core.BOLD, core.RESET)
 		fmt.Fprintf(os.Stderr, "    %s -file final_report.txt -ai\n", os.Args[0])
 		fmt.Println()
 	}
-	
+
 	flag.Parse()
 
 	if *cookieFlag != "" {
@@ -220,12 +234,16 @@ func main() {
 		_ = godotenv.Load(filepath.Join(home, ".siphon.env")) // 3. Home directory
 	}
 
+	if err := loadSavedAI(); err != nil {
+		core.PrintWarning(err.Error())
+	}
+
 	if *fileReport != "" {
 		if _, err := os.Stat(*fileReport); os.IsNotExist(err) {
 			core.PrintError(fmt.Sprintf("Report file not found: %s", *fileReport))
 			os.Exit(1)
 		}
-		
+
 		aiOutputPath := ""
 		if *outDir != "" {
 			os.MkdirAll(*outDir, 0755)
@@ -233,7 +251,7 @@ func main() {
 		} else {
 			aiOutputPath = "ai_summary.txt"
 		}
-		
+
 		core.AnalyzeReportFileWithAI(*fileReport, aiOutputPath)
 		os.Exit(0)
 	}
@@ -297,11 +315,11 @@ func main() {
 		core.PrintResult("", "mode", "single-url", "")
 		core.PrintResult("", "target", urlStr, "")
 		core.PrintAuthStatus(urlStr)
-		
+
 		jsAll = []string{urlStr}
 		jsCustom = []string{urlStr}
 		live = []string{urlStr}
-		
+
 		stats.SetUrls(1)
 		stats.SetLive(1)
 		stats.SetJsAll(1)
@@ -309,7 +327,7 @@ func main() {
 
 		os.WriteFile(filepath.Join(dirs["js"], "js_urls.txt"), []byte(urlStr+"\n"), 0644)
 		os.WriteFile(filepath.Join(dirs["js"], "custom_js.txt"), []byte(urlStr+"\n"), 0644)
-		
+
 	} else {
 		// NORMAL DOMAIN OR SUBS MODE
 		var singleDomain bool
@@ -331,7 +349,7 @@ func main() {
 		} else if *pathFilter != "" && strings.HasPrefix(*pathFilter, "http") {
 			// Extract domain from URL provided in pathFilter to run scan
 			singleDomain = true
-			
+
 			u, err := url.Parse(*pathFilter)
 			domainUrl := *pathFilter
 			if err == nil {
@@ -393,7 +411,7 @@ func main() {
 			core.PrintError("No live hosts found")
 			os.Exit(0)
 		}
-		
+
 		core.PrintSuccess(fmt.Sprintf("Live Host Detection complete [%d hosts]", len(live)))
 
 		// 2. URL Collection
@@ -434,7 +452,7 @@ func main() {
 					tracker.TaskStarted(name)
 					res := tool(live)
 					tracker.TaskFinished(name, len(res))
-					
+
 					mu.Lock()
 					allUrls = append(allUrls, res...)
 					mu.Unlock()
@@ -447,7 +465,7 @@ func main() {
 				tracker.TaskStarted("Active HTML Scrape")
 				res := collector.ActiveHTMLScrape(live)
 				tracker.TaskFinished("Active HTML Scrape", len(res))
-				
+
 				mu.Lock()
 				allUrls = append(allUrls, res...)
 				mu.Unlock()
@@ -466,7 +484,7 @@ func main() {
 
 		// 3. JS Extraction & Filter
 		core.PrintSection(3, 6, "JavaScript Extraction (Static)")
-		
+
 		var jsSet []string
 
 		if *pathFilter != "" {
@@ -484,7 +502,7 @@ func main() {
 					targetPaths = append(targetPaths, h+p)
 				}
 			}
-			
+
 			jsSet = append(jsSet, collector.ActiveHTMLScrape(targetPaths)...)
 
 			bruteUrls := collector.BruteJSPaths(live, *pathFilter)
@@ -563,10 +581,10 @@ func main() {
 	if dlPb != nil {
 		dlPb.Stop()
 	}
-	
+
 	stats.SetJsDl(len(dlMap))
 	stats.SetDlRate(fmt.Sprintf("%.1f%%", 100.0*float64(len(dlMap))/float64(len(targets))))
-	
+
 	core.PrintSuccess(fmt.Sprintf("Download complete [%d files]", len(dlMap)))
 
 	scanner.CheckGitExposure(live, dirs["git"], *threads)
@@ -605,7 +623,7 @@ func main() {
 			tracker.TaskStarted(name)
 			res := f()
 			tracker.TaskFinished(name, len(res))
-			
+
 			mu.Lock()
 			allFindings = append(allFindings, res...)
 			mu.Unlock()
@@ -713,6 +731,12 @@ func main() {
 		ans = strings.TrimSpace(strings.ToLower(ans))
 
 		if ans == "y" || ans == "yes" {
+			if os.Getenv("AI_API_KEY") == "" {
+				if err := manageAI("setup", reader); err != nil {
+					core.PrintError(err.Error())
+					return
+				}
+			}
 			aiOutputPath := filepath.Join(dirs["secrets"], "ai_summary.txt")
 			core.AnalyzeReportWithAI(allFindings, aiOutputPath)
 		}
