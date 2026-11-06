@@ -114,7 +114,7 @@ func promptAIProfile(reader *bufio.Reader) (aiProfile, error) {
 		return p, errors.New("model ID is required")
 	}
 	fmt.Print("API key (saved in local Siphon config): ")
-	key, err := term.ReadPassword(fd)
+	key, err := readMaskedKey(reader, fd)
 	fmt.Println()
 	if err != nil {
 		return p, err
@@ -124,6 +124,38 @@ func promptAIProfile(reader *bufio.Reader) (aiProfile, error) {
 		return p, errors.New("API key is required")
 	}
 	return p, nil
+}
+
+func readMaskedKey(reader *bufio.Reader, fd int) (string, error) {
+	state, err := term.MakeRaw(fd)
+	if err != nil {
+		return "", err
+	}
+	defer term.Restore(fd, state)
+
+	var key []rune
+	for {
+		ch, _, err := reader.ReadRune()
+		if err != nil {
+			return "", err
+		}
+		switch ch {
+		case '\r', '\n':
+			return string(key), nil
+		case 3, 4:
+			return "", errors.New("API key entry cancelled")
+		case '\b', 127:
+			if len(key) > 0 {
+				key = key[:len(key)-1]
+				fmt.Print("\b \b")
+			}
+		default:
+			if ch >= ' ' {
+				key = append(key, ch)
+				fmt.Print("*")
+			}
+		}
+	}
 }
 
 func manageAI(action string, reader *bufio.Reader) error {
