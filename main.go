@@ -59,6 +59,33 @@ func checkAIAccess(key string) bool {
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
+// resolveDomainURL preserves explicit schemes and probes bare domains before scanning.
+func resolveDomainURL(domain string) (string, error) {
+	target := core.NormaliseHost(domain)
+	if strings.Contains(strings.TrimSpace(domain), "://") {
+		return target, nil
+	}
+
+	client := core.GetHTTPClient(5 * time.Second)
+	defer client.CloseIdleConnections()
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 || !strings.EqualFold(req.URL.Hostname(), via[0].URL.Hostname()) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+
+	for _, candidate := range []string{target, "http://" + strings.TrimPrefix(target, "https://")} {
+		resp, err := client.Get(candidate)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+		return resp.Request.URL.Scheme + "://" + strings.SplitN(candidate, "://", 2)[1], nil
+	}
+	return "", fmt.Errorf("could not connect to %s over HTTPS or HTTP", domain)
+}
+
 // CheckDependencies verifies all required tools are in $PATH.
 // Prints status for each tool and prompts the user if any are missing.
 func CheckDependencies() (string, string) {
@@ -338,7 +365,11 @@ func main() {
 
 		if *domain != "" {
 			singleDomain = true
-			domainUrl := core.NormaliseHost(*domain)
+			domainUrl, err := resolveDomainURL(*domain)
+			if err != nil {
+				core.PrintError(err.Error())
+				os.Exit(1)
+			}
 			tmpSubs := filepath.Join(*outDir, "_domain_input.txt")
 			os.WriteFile(tmpSubs, []byte(domainUrl+"\n"), 0644)
 			subsList = []string{domainUrl}
