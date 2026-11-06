@@ -61,7 +61,7 @@ func checkAIAccess(key string) bool {
 
 // CheckDependencies verifies all required tools are in $PATH.
 // Prints status for each tool and prompts the user if any are missing.
-func CheckDependencies() {
+func CheckDependencies() (string, string) {
 	var missing []string
 	var rows [][]string
 
@@ -75,14 +75,12 @@ func CheckDependencies() {
 		}
 	}
 
-	// Check AI
-	apiKey := os.Getenv("AI_API_KEY")
-	if apiKey == "" {
-		rows = append(rows, []string{"[-]", "AI (AI_API_KEY)", "missing"})
-	} else if !checkAIAccess(apiKey) {
-		rows = append(rows, []string{"[-]", "AI (AI_API_KEY)", "invalid/unreachable"})
-	} else {
-		rows = append(rows, []string{"[+]", "AI (AI_API_KEY)", "ok"})
+	aiStatus, aiColor := "DISCONNECTED (no API key)", core.RED
+	if apiKey := os.Getenv("AI_API_KEY"); apiKey != "" {
+		aiStatus = "DISCONNECTED (API check failed)"
+		if checkAIAccess(apiKey) {
+			aiStatus, aiColor = "CONNECTED", core.GREEN
+		}
 	}
 
 	if core.GlobalConfig.Silent {
@@ -90,7 +88,7 @@ func CheckDependencies() {
 			core.PrintError(fmt.Sprintf("Required tools missing: %s", strings.Join(missing, ", ")))
 			os.Exit(1)
 		}
-		return
+		return aiStatus, aiColor
 	}
 
 	// Print the status table
@@ -120,6 +118,7 @@ func CheckDependencies() {
 
 	core.PrintSuccess("Continuing...")
 	core.PrintDivider()
+	return aiStatus, aiColor
 }
 
 // banner is now handled by core.PrintBanner()
@@ -257,7 +256,11 @@ func main() {
 	}
 
 	// Pre-flight: check all required tool dependencies
-	CheckDependencies()
+	aiStatus, aiColor := CheckDependencies()
+	printScanStatus := func(target string) {
+		core.PrintAuthStatus(target)
+		core.PrintResult("", "ai", aiStatus, aiColor)
+	}
 
 	scanStart := time.Now()
 
@@ -314,7 +317,7 @@ func main() {
 		urlStr := core.NormaliseHost(*jsUrl)
 		core.PrintResult("", "mode", "single-url", "")
 		core.PrintResult("", "target", urlStr, "")
-		core.PrintAuthStatus(urlStr)
+		printScanStatus(urlStr)
 
 		jsAll = []string{urlStr}
 		jsCustom = []string{urlStr}
@@ -345,7 +348,7 @@ func main() {
 			if *pathFilter != "" && strings.HasPrefix(*pathFilter, "/") {
 				targetToCheck = domainUrl + *pathFilter
 			}
-			core.PrintAuthStatus(targetToCheck)
+			printScanStatus(targetToCheck)
 		} else if *pathFilter != "" && strings.HasPrefix(*pathFilter, "http") {
 			// Extract domain from URL provided in pathFilter to run scan
 			singleDomain = true
@@ -362,7 +365,7 @@ func main() {
 			subsList = []string{domainUrl}
 			core.PrintResult("", "mode", "single-domain (extracted)", "")
 			core.PrintResult("", "target", domainUrl, "")
-			core.PrintAuthStatus(*pathFilter)
+			printScanStatus(*pathFilter)
 		} else if *subs != "" {
 			data, err := os.ReadFile(*subs)
 			if err != nil {
@@ -377,9 +380,9 @@ func main() {
 			}
 			core.PrintResult("", "loaded hosts", len(subsList), "")
 			if len(subsList) > 0 {
-				core.PrintAuthStatus(subsList[0])
+				printScanStatus(subsList[0])
 			} else {
-				core.PrintAuthStatus("")
+				printScanStatus("")
 			}
 		}
 
